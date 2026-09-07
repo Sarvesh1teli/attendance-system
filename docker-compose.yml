@@ -1,0 +1,72 @@
+services:
+  # ─── PostgreSQL Database ─────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: teli_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-attendance}
+      POSTGRES_USER: ${DB_USER:-teli}
+      POSTGRES_PASSWORD: ${DB_PASS:-changeme}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db-init:/docker-entrypoint-initdb.d:ro   # optional seed SQL
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-teli} -d ${DB_NAME:-attendance}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - teli_net
+
+  # ─── Spring Boot Cloud API ───────────────────────────────────────────────────
+  api:
+    build:
+      context: ./cloud
+      dockerfile: Dockerfile
+    container_name: teli_api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-8086}:8086"
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-attendance}
+      DB_USER: ${DB_USER:-teli}
+      DB_PASS: ${DB_PASS:-changeme}
+      SERVER_PORT: 8086
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - teli_net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8086/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 3
+
+  # ─── Teacher PWA (static files via Nginx) ────────────────────────────────────
+  pwa:
+    image: nginx:alpine
+    container_name: teli_pwa
+    restart: unless-stopped
+    ports:
+      - "${PWA_PORT:-80}:80"
+    volumes:
+      - ./teacher-pwa/dist:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - teli_net
+
+# ─── Volumes ─────────────────────────────────────────────────────────────────
+volumes:
+  pgdata:
+    driver: local
+
+# ─── Networks ────────────────────────────────────────────────────────────────
+networks:
+  teli_net:
+    driver: bridge

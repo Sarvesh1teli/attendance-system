@@ -1,0 +1,14 @@
+{
+  "name": "attendance-system",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Generic Face Recognition Attendance Management System",
+  "workspaces": [
+    "desktop",
+    "teacher-pwa"
+  ],
+  "scripts": {
+    "desktop": "npm run dev --workspace=desktop",
+    "pwa": "npm run dev --workspace=teacher-pwa"
+  }
+}
