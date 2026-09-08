@@ -85,9 +85,17 @@ export default function TakeAttendancePage() {
           })
           setRecords(map)
 
-          // Load students
-          const stus = await db.students.toArray()
-          setStudents(stus)
+          // Load students for this specific session
+          let sessionStudents: CachedStudent[] = []
+          if (foundSession.batch_id) {
+            sessionStudents = await db.students.where('class_id').equals(foundSession.batch_id).toArray()
+          }
+          if (sessionStudents.length === 0) {
+            const recordStudentIds = new Set(recs.map((r) => r.student_id))
+            const allStus = await db.students.toArray()
+            sessionStudents = allStus.filter((s) => recordStudentIds.has(s.student_id))
+          }
+          setStudents(sessionStudents)
         }
       } else if (classIdParam && assigned.some((c) => c.id === classIdParam)) {
         setSelectedClassId(classIdParam)
@@ -119,21 +127,14 @@ export default function TakeAttendancePage() {
         const classTopics = await db.topics.where('subject_id').equals(cls.subject_id).toArray()
         setTopics(classTopics)
 
-        // Try lookup by class_id or cls.batch_id
-        let classStudents = await db.students.where('class_id').equals(selectedClassId).toArray()
-        if (classStudents.length === 0 && cls.batch_id) {
-          classStudents = await db.students.where('class_id').equals(cls.batch_id).toArray()
-        }
-        if (classStudents.length === 0 && (cls as any).batchId) {
-          classStudents = await db.students.where('class_id').equals((cls as any).batchId).toArray()
+        // Strict batch student lookup: only students admitted to this batch
+        const targetBatchId = cls.batch_id || (cls as any).batchId || selectedClassId
+        let classStudents = await db.students.where('class_id').equals(targetBatchId).toArray()
+        if (classStudents.length === 0 && targetBatchId !== selectedClassId) {
+          classStudents = await db.students.where('class_id').equals(selectedClassId).toArray()
         }
 
-        if (classStudents.length > 0) {
-          setStudents(classStudents)
-        } else {
-          const allStudents = await db.students.toArray()
-          setStudents(allStudents)
-        }
+        setStudents(classStudents)
       }
     }
 
@@ -277,13 +278,13 @@ export default function TakeAttendancePage() {
       setSyncingRoster(true)
       await triggerSync()
       if (selectedClassId) {
-        const classStudents = await db.students.where('class_id').equals(selectedClassId).toArray()
-        if (classStudents.length > 0) {
-          setStudents(classStudents)
-        } else {
-          const allStudents = await db.students.toArray()
-          setStudents(allStudents)
+        const rawCls = await db.classes.get(selectedClassId)
+        const targetBatchId = rawCls?.batch_id || (rawCls as any)?.batchId || selectedClassId
+        let classStudents = await db.students.where('class_id').equals(targetBatchId).toArray()
+        if (classStudents.length === 0 && targetBatchId !== selectedClassId) {
+          classStudents = await db.students.where('class_id').equals(selectedClassId).toArray()
         }
+        setStudents(classStudents)
       }
     } finally {
       setSyncingRoster(false)
@@ -612,6 +613,11 @@ export default function TakeAttendancePage() {
                   ctx.resume()
                 }
               } catch {}
+
+              if (students.length === 0 && !showScanner) {
+                alert('No students are enrolled in this batch yet. Please enroll students in the Desktop App, then tap Push Data.')
+                return
+              }
               setShowScanner((v) => !v)
             }}
             className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold transition-all shadow-md ${
@@ -701,9 +707,9 @@ export default function TakeAttendancePage() {
           <div className="p-8 border border-dashed rounded-2xl text-center bg-card/40 space-y-3">
             <Users className="h-8 w-8 text-muted-foreground/40 mx-auto" />
             <div className="space-y-1">
-              <p className="text-xs font-bold text-foreground">No students in roster</p>
+              <p className="text-xs font-bold text-foreground">No students enrolled</p>
               <p className="text-[11px] text-muted-foreground max-w-xs mx-auto">
-                Teacher App local data is cleared. Push fresh master data from Desktop, then tap <strong>🔄 Sync</strong> above to pull.
+                No students are enrolled in this batch ({classes.find((c) => c.id === selectedClassId)?.batch_name || 'Selected Batch'}). To add students, enroll them in the Desktop App and tap <strong>Push Data</strong>.
               </p>
             </div>
           </div>

@@ -1,8 +1,31 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Plus, Pencil, Trash2, Calendar, Play, RefreshCw, ChevronLeft, ChevronRight, AlertTriangle, CheckCircle, X, Clock } from 'lucide-react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  Calendar,
+  Play,
+  RefreshCw,
+  AlertTriangle,
+  CheckCircle,
+  X,
+  Clock,
+  LayoutList,
+  LayoutGrid,
+  Building2,
+  UserCheck,
+  MapPin,
+  CalendarDays,
+  Filter,
+} from 'lucide-react'
 import type {
-  TimetableSlot, CreateTimetableSlotInput,
-  Subject, Batch, Faculty, StudentGroup
+  TimetableSlot,
+  CreateTimetableSlotInput,
+  Subject,
+  Batch,
+  Faculty,
+  StudentGroup,
+  Department,
 } from '@main/ipc/types'
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -19,6 +42,20 @@ export function format12Hour(timeStr?: string): string {
   const period = hour >= 12 ? 'PM' : 'AM'
   hour = hour % 12 || 12
   return `${hour}:${minute} ${period}`
+}
+
+function formatDuration(startTime?: string, endTime?: string): string {
+  if (!startTime || !endTime) return ''
+  const [sh, sm] = startTime.split(':').map(Number)
+  const [eh, em] = endTime.split(':').map(Number)
+  if (isNaN(sh) || isNaN(sm) || isNaN(eh) || isNaN(em)) return ''
+  const diffMins = eh * 60 + em - (sh * 60 + sm)
+  if (diffMins <= 0) return ''
+  const hrs = Math.floor(diffMins / 60)
+  const mins = diffMins % 60
+  if (hrs > 0 && mins > 0) return `${hrs}h ${mins}m`
+  if (hrs > 0) return `${hrs} hr`
+  return `${mins} min`
 }
 
 const SLOT_COLORS = [
@@ -39,6 +76,7 @@ function slotColor(subjectId: string) {
 }
 
 interface SlotFormData {
+  department_id: string
   subject_id: string
   batch_id: string
   group_id: string
@@ -52,10 +90,17 @@ interface SlotFormData {
 }
 
 const defaultForm = (dayOfWeek = 1): SlotFormData => ({
-  subject_id: '', batch_id: '', group_id: '', faculty_id: '',
-  room: '', day_of_week: dayOfWeek,
-  start_time: '09:00', end_time: '10:00',
-  effective_from: '', effective_until: '',
+  department_id: '',
+  subject_id: '',
+  batch_id: '',
+  group_id: '',
+  faculty_id: '',
+  room: '',
+  day_of_week: dayOfWeek,
+  start_time: '09:00',
+  end_time: '10:00',
+  effective_from: '',
+  effective_until: '',
 })
 
 export default function TimetablePage() {
@@ -63,6 +108,7 @@ export default function TimetablePage() {
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [batches, setBatches] = useState<Batch[]>([])
   const [faculties, setFaculties] = useState<Faculty[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
   const [groups, setGroups] = useState<StudentGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -74,72 +120,184 @@ export default function TimetablePage() {
   const [generateResult, setGenerateResult] = useState<any | null>(null)
   const [activeOnly, setActiveOnly] = useState(true)
 
+  const [viewMode, setViewMode] = useState<'ROW_WISE' | 'GRID'>('ROW_WISE')
+  const [filterDay, setFilterDay] = useState<'ALL' | 'TODAY' | number>('ALL')
+  const [filterBatchId, setFilterBatchId] = useState<string>('')
+
   const todayDow = new Date().getDay()
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [s, b, f, sl, g] = await Promise.allSettled([
+      const [s, b, f, sl, g, d] = await Promise.allSettled([
         window.api.subject.list(),
         window.api.batch.list(),
         window.api.faculty.list(),
         window.api.timetable.list({ active_only: activeOnly }),
         window.api.studentGroup.list(),
+        window.api.department.list(),
       ])
       if (s.status === 'fulfilled') setSubjects(s.value)
       if (b.status === 'fulfilled') setBatches(b.value)
       if (f.status === 'fulfilled') setFaculties(f.value)
       if (sl.status === 'fulfilled') setSlots(sl.value)
       if (g.status === 'fulfilled') setGroups(g.value)
-    } finally { setLoading(false) }
+      if (d.status === 'fulfilled') setDepartments(d.value)
+    } finally {
+      setLoading(false)
+    }
   }, [activeOnly])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+  }, [load])
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showForm) {
+        setShowForm(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [showForm])
+
+  const deptMap = useMemo(() => {
+    const map = new Map<string, Department>()
+    departments.forEach((d) => map.set(d.department_id, d))
+    return map
+  }, [departments])
+
+  const facultyMap = useMemo(() => {
+    const map = new Map<string, Faculty>()
+    faculties.forEach((f) => map.set(f.faculty_id, f))
+    return map
+  }, [faculties])
+
+  const availableFaculties = useMemo(() => {
+    if (!form.department_id) return faculties
+    return faculties.filter((f) => f.department_id === form.department_id)
+  }, [faculties, form.department_id])
 
   const openCreate = (dayOfWeek: number) => {
     setEditing(null)
     setForm(defaultForm(dayOfWeek))
-    setFormError(''); setShowForm(true)
+    setFormError('')
+    setShowForm(true)
   }
 
   const openEdit = (slot: TimetableSlot) => {
     setEditing(slot)
+    const fac = faculties.find((f) => f.faculty_id === slot.faculty_id)
+    const subj = subjects.find((s) => s.subject_id === slot.subject_id)
+    const deptId = fac?.department_id || subj?.department_id || ''
+
     setForm({
-      subject_id: slot.subject_id, batch_id: slot.batch_id,
-      group_id: slot.group_id ?? '', faculty_id: slot.faculty_id ?? '',
-      room: slot.room ?? '', day_of_week: slot.day_of_week,
-      start_time: slot.start_time, end_time: slot.end_time,
-      effective_from: slot.effective_from ?? '', effective_until: slot.effective_until ?? '',
+      department_id: deptId,
+      subject_id: slot.subject_id,
+      batch_id: slot.batch_id,
+      group_id: slot.group_id ?? '',
+      faculty_id: slot.faculty_id ?? '',
+      room: slot.room ?? '',
+      day_of_week: slot.day_of_week,
+      start_time: slot.start_time,
+      end_time: slot.end_time,
+      effective_from: slot.effective_from ?? '',
+      effective_until: slot.effective_until ?? '',
     })
-    setFormError(''); setShowForm(true)
+    setFormError('')
+    setShowForm(true)
+  }
+
+  const handleDepartmentChange = (deptId: string) => {
+    setForm((prev) => {
+      let newFacultyId = prev.faculty_id
+      if (deptId && newFacultyId) {
+        const currentFac = faculties.find((f) => f.faculty_id === newFacultyId)
+        if (currentFac && currentFac.department_id !== deptId) {
+          newFacultyId = ''
+        }
+      }
+      const inDept = faculties.filter((f) => f.department_id === deptId)
+      if (inDept.length === 1 && !newFacultyId) {
+        newFacultyId = inDept[0].faculty_id
+      }
+
+      return {
+        ...prev,
+        department_id: deptId,
+        faculty_id: newFacultyId,
+      }
+    })
+  }
+
+  const handleSubjectChange = (subjId: string) => {
+    const subj = subjects.find((s) => s.subject_id === subjId)
+    setForm((prev) => {
+      let nextDeptId = prev.department_id
+      if (subj?.department_id) {
+        nextDeptId = subj.department_id
+      }
+      return {
+        ...prev,
+        subject_id: subjId,
+        department_id: nextDeptId,
+      }
+    })
   }
 
   const handleSave = async () => {
-    if (!form.subject_id) { setFormError('Subject is required'); return }
-    if (!form.batch_id) { setFormError('Batch is required'); return }
-    if (!form.start_time || !form.end_time) { setFormError('Start and end time required'); return }
-    if (form.start_time >= form.end_time) { setFormError('End time must be after start time'); return }
+    if (!form.subject_id) {
+      setFormError('Subject is required')
+      return
+    }
+    if (!form.batch_id) {
+      setFormError('Batch is required')
+      return
+    }
+    if (!form.start_time || !form.end_time) {
+      setFormError('Start and end time required')
+      return
+    }
+    if (form.start_time >= form.end_time) {
+      setFormError('End time must be after start time')
+      return
+    }
 
     setSaving(true)
     try {
       const input: CreateTimetableSlotInput = {
-        subject_id: form.subject_id, batch_id: form.batch_id,
-        group_id: form.group_id || undefined, faculty_id: form.faculty_id || undefined,
-        room: form.room || undefined, day_of_week: form.day_of_week,
-        start_time: form.start_time, end_time: form.end_time,
+        subject_id: form.subject_id,
+        batch_id: form.batch_id,
+        group_id: form.group_id || undefined,
+        faculty_id: form.faculty_id || undefined,
+        room: form.room || undefined,
+        day_of_week: form.day_of_week,
+        start_time: form.start_time,
+        end_time: form.end_time,
         effective_from: form.effective_from || undefined,
         effective_until: form.effective_until || undefined,
       }
       if (editing) await window.api.timetable.update(editing.slot_id, input)
       else await window.api.timetable.create(input)
-      setShowForm(false); await load()
+      setShowForm(false)
+      await load()
     } catch (e: unknown) {
       setFormError(e instanceof Error ? e.message : 'Save failed')
-    } finally { setSaving(false) }
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleDelete = async (slot: TimetableSlot) => {
-    if (!confirm(`Delete slot: ${slot.subject_name} on ${DAYS[slot.day_of_week]} (${format12Hour(slot.start_time)} – ${format12Hour(slot.end_time)})?`)) return
+    if (
+      !confirm(
+        `Delete slot: ${slot.subject_name} on ${DAYS[slot.day_of_week]} (${format12Hour(
+          slot.start_time
+        )} – ${format12Hour(slot.end_time)})?`
+      )
+    )
+      return
     await window.api.timetable.delete(slot.slot_id)
     await load()
   }
@@ -150,73 +308,213 @@ export default function TimetablePage() {
   }
 
   const handleGenerate = async () => {
-    setGenerating(true); setGenerateResult(null)
+    setGenerating(true)
+    setGenerateResult(null)
     try {
       const result = await window.api.timetable.generateTodaySessions()
       setGenerateResult(result)
-    } finally { setGenerating(false) }
+    } finally {
+      setGenerating(false)
+    }
   }
 
-  // Group slots by day_of_week
-  const slotsByDay = WEEK_DAYS.map(dow => ({
-    dow,
-    label: DAYS[dow],
-    short: DAYS_SHORT[dow],
-    isToday: dow === todayDow,
-    slots: slots.filter(s => s.day_of_week === dow).sort((a, b) => a.start_time.localeCompare(b.start_time)),
-  }))
+  const filteredSlots = useMemo(() => {
+    if (!filterBatchId) return slots
+    return slots.filter((s) => s.batch_id === filterBatchId)
+  }, [slots, filterBatchId])
+
+  const slotsByDay = useMemo(() => {
+    return WEEK_DAYS.map((dow) => ({
+      dow,
+      label: DAYS[dow],
+      short: DAYS_SHORT[dow],
+      isToday: dow === todayDow,
+      slots: filteredSlots
+        .filter((s) => s.day_of_week === dow)
+        .sort((a, b) => a.start_time.localeCompare(b.start_time)),
+    }))
+  }, [filteredSlots, todayDow])
+
+  const displayedDays = useMemo(() => {
+    if (filterDay === 'TODAY') {
+      return slotsByDay.filter((d) => d.dow === todayDow)
+    }
+    if (typeof filterDay === 'number') {
+      return slotsByDay.filter((d) => d.dow === filterDay)
+    }
+    return slotsByDay
+  }, [slotsByDay, filterDay, todayDow])
+
+  const totalSlotsCount = filteredSlots.length
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Calendar className="h-6 w-6 text-primary" /> Timetable
           </h1>
-          <p className="text-muted-foreground text-sm">
-            Weekly recurring class schedule (12-hour AM/PM) · {slots.length} slot{slots.length !== 1 ? 's' : ''}
-          </p>
         </div>
-        <div className="flex items-center gap-2">
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center bg-muted/60 p-1 rounded-lg border text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => setViewMode('ROW_WISE')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${
+                viewMode === 'ROW_WISE'
+                  ? 'bg-card text-primary shadow-sm font-bold'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <LayoutList className="h-3.5 w-3.5" />
+              <span>Row-Wise List</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('GRID')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${
+                viewMode === 'GRID'
+                  ? 'bg-card text-primary shadow-sm font-bold'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+              <span>Weekly Grid</span>
+            </button>
+          </div>
+
           <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none text-muted-foreground">
-            <input type="checkbox" checked={activeOnly} onChange={e => setActiveOnly(e.target.checked)} />
+            <input
+              type="checkbox"
+              checked={activeOnly}
+              onChange={(e) => setActiveOnly(e.target.checked)}
+            />
             Active only
           </label>
+
           <button onClick={load} className="p-1.5 rounded border hover:bg-muted" title="Refresh">
             <RefreshCw className="h-4 w-4" />
           </button>
-          <button onClick={handleGenerate} disabled={generating}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700 disabled:opacity-60">
-            {generating
-              ? <RefreshCw className="h-4 w-4 animate-spin" />
-              : <Play className="h-4 w-4" />}
+
+          <button
+            onClick={handleGenerate}
+            disabled={generating}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700 disabled:opacity-60 shadow-sm"
+          >
+            {generating ? (
+              <RefreshCw className="h-4 w-4 animate-spin" />
+            ) : (
+              <Play className="h-4 w-4" />
+            )}
             Generate Today's Sessions
           </button>
-          <button onClick={() => openCreate(todayDow)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 shadow-sm">
+
+          <button
+            onClick={() => openCreate(todayDow)}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 shadow-sm"
+          >
             <Plus className="h-4 w-4" /> Add Slot
           </button>
         </div>
       </div>
 
-      {/* Generate Result Banner */}
+      <div className="flex items-center justify-between gap-3 flex-wrap p-2.5 bg-card border rounded-xl">
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar text-xs font-medium">
+          <button
+            onClick={() => setFilterDay('ALL')}
+            className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all ${
+              filterDay === 'ALL'
+                ? 'bg-primary text-primary-foreground font-bold shadow-sm'
+                : 'border bg-muted/20 text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            All Days ({totalSlotsCount})
+          </button>
+
+          <button
+            onClick={() => setFilterDay('TODAY')}
+            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg whitespace-nowrap transition-all ${
+              filterDay === 'TODAY'
+                ? 'bg-blue-600 text-white font-bold shadow-sm'
+                : 'border bg-muted/20 text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <span>Today ({DAYS_SHORT[todayDow]})</span>
+            <span className="text-[10px] px-1.5 rounded-full bg-white/20">
+              {slots.filter((s) => s.day_of_week === todayDow).length}
+            </span>
+          </button>
+
+          {WEEK_DAYS.map((dow) => {
+            const count = slots.filter((s) => s.day_of_week === dow).length
+            const isSelected = filterDay === dow
+            return (
+              <button
+                key={dow}
+                onClick={() => setFilterDay(dow)}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg whitespace-nowrap transition-all ${
+                  isSelected
+                    ? 'bg-primary text-primary-foreground font-bold shadow-sm'
+                    : 'border bg-muted/20 text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <span>{DAYS_SHORT[dow]}</span>
+                {count > 0 && (
+                  <span className="text-[10px] px-1 rounded-full bg-muted font-bold text-foreground">
+                    {count}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+
+        {batches.length > 0 && (
+          <div className="flex items-center gap-2 text-xs">
+            <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+            <select
+              value={filterBatchId}
+              onChange={(e) => setFilterBatchId(e.target.value)}
+              className="bg-background border rounded-lg px-2.5 py-1.5 text-xs font-medium focus:ring-1 focus:ring-primary"
+            >
+              <option value="">All Batches ({batches.length})</option>
+              {batches.map((b) => (
+                <option key={b.batch_id} value={b.batch_id}>
+                  {b.batch_name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
       {generateResult && (
-        <div className={`rounded-lg border p-4 flex items-start gap-3 ${generateResult.created > 0 ? 'bg-green-50 border-green-200' : 'bg-muted border-border'}`}>
-          <CheckCircle className={`h-5 w-5 mt-0.5 flex-shrink-0 ${generateResult.created > 0 ? 'text-green-600' : 'text-muted-foreground'}`} />
+        <div
+          className={`rounded-lg border p-4 flex items-start gap-3 ${
+            generateResult.created > 0 ? 'bg-green-50 border-green-200' : 'bg-muted border-border'
+          }`}
+        >
+          <CheckCircle
+            className={`h-5 w-5 mt-0.5 flex-shrink-0 ${
+              generateResult.created > 0 ? 'text-green-600' : 'text-muted-foreground'
+            }`}
+          />
           <div className="flex-1">
             <p className="font-semibold text-sm">
-              {generateResult.created} session{generateResult.created !== 1 ? 's' : ''} created
-              · {generateResult.skipped} skipped (already exist)
+              {generateResult.created} session{generateResult.created !== 1 ? 's' : ''} created ·{' '}
+              {generateResult.skipped} skipped (already exist)
             </p>
             <div className="mt-2 space-y-0.5">
               {generateResult.details.map((d: any, i: number) => (
                 <p key={i} className="text-xs text-muted-foreground flex items-center gap-1.5">
-                  {d.result === 'CREATED'
-                    ? <CheckCircle className="h-3 w-3 text-green-500" />
-                    : d.result === 'ERROR'
-                    ? <AlertTriangle className="h-3 w-3 text-red-500" />
-                    : <span className="w-3 h-3 rounded-full bg-gray-300 inline-block" />}
+                  {d.result === 'CREATED' ? (
+                    <CheckCircle className="h-3 w-3 text-green-500" />
+                  ) : d.result === 'ERROR' ? (
+                    <AlertTriangle className="h-3 w-3 text-red-500" />
+                  ) : (
+                    <span className="w-3 h-3 rounded-full bg-gray-300 inline-block" />
+                  )}
                   {d.subject_name} – {d.batch_name} at {format12Hour(d.start_time)}
                   {d.reason && <span className="text-muted-foreground"> ({d.reason})</span>}
                 </p>
@@ -229,220 +527,639 @@ export default function TimetablePage() {
         </div>
       )}
 
-      {/* Slot Form */}
+      {/* Add / Edit Slot Popup Modal */}
       {showForm && (
-        <div className="bg-card border rounded-lg p-6 space-y-4 shadow-sm">
-          <div className="flex items-center justify-between border-b pb-3">
-            <h2 className="font-semibold text-base">{editing ? 'Edit Timetable Slot' : 'Add Timetable Slot'}</h2>
-            <button onClick={() => setShowForm(false)} className="p-1 rounded text-muted-foreground hover:text-foreground">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-
-          {formError && <p className="text-destructive text-sm bg-destructive/10 p-2.5 rounded-md">{formError}</p>}
-
-          {subjects.length === 0 && (
-            <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-600 rounded-md text-xs">
-              ⚠️ No subjects found in the database. Please add subjects in Academic → Subjects first.
-            </div>
-          )}
-          {batches.length === 0 && (
-            <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-600 rounded-md text-xs">
-              ⚠️ No batches found in the database. Please add batches in Academic → Batches first.
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {/* Day */}
-            <div>
-              <label className="text-sm font-medium">Day of the Week *</label>
-              <select className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-background"
-                value={form.day_of_week} onChange={e => setForm(f => ({ ...f, day_of_week: Number(e.target.value) }))}>
-                {WEEK_DAYS.map(d => <option key={d} value={d}>{DAYS[d]}</option>)}
-              </select>
-            </div>
-            {/* Start time */}
-            <div>
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium flex items-center gap-1">
-                  <Clock className="h-3.5 w-3.5 text-muted-foreground" /> Start Time *
-                </label>
-                {form.start_time && (
-                  <span className="text-xs font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded">
-                    {format12Hour(form.start_time)}
-                  </span>
-                )}
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-150"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowForm(false)
+          }}
+        >
+          <div className="bg-card border rounded-2xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150 my-auto">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b flex items-center justify-between bg-muted/30">
+              <div>
+                <h2 className="font-bold text-lg text-foreground flex items-center gap-2">
+                  <Clock className="h-5 w-5 text-primary" />
+                  <span>{editing ? 'Edit Timetable Slot' : 'Add Timetable Class Slot'}</span>
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Configure class timings, batch, and assign professor by department
+                </p>
               </div>
-              <input type="time" className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-background"
-                value={form.start_time} onChange={e => setForm(f => ({ ...f, start_time: e.target.value }))} />
-            </div>
-            {/* End time */}
-            <div>
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium flex items-center gap-1">
-                  <Clock className="h-3.5 w-3.5 text-muted-foreground" /> End Time *
-                </label>
-                {form.end_time && (
-                  <span className="text-xs font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded">
-                    {format12Hour(form.end_time)}
-                  </span>
-                )}
-              </div>
-              <input type="time" className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-background"
-                value={form.end_time} onChange={e => setForm(f => ({ ...f, end_time: e.target.value }))} />
+              <button
+                type="button"
+                onClick={() => setShowForm(false)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                title="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
             </div>
 
-            {/* Quick 12-hour AM/PM presets */}
-            <div className="sm:col-span-2 lg:col-span-3 flex flex-wrap items-center gap-1.5 p-2 bg-muted/20 border rounded-lg">
-              <span className="text-xs text-muted-foreground font-medium mr-1 flex items-center gap-1">
-                <Clock className="h-3 w-3" /> Quick Presets:
-              </span>
-              {[
-                { start: '09:00', end: '10:00', label: '9:00 AM – 10:00 AM' },
-                { start: '10:00', end: '11:00', label: '10:00 AM – 11:00 AM' },
-                { start: '11:30', end: '12:30', label: '11:30 AM – 12:30 PM' },
-                { start: '13:30', end: '14:30', label: '1:30 PM – 2:30 PM' },
-                { start: '14:30', end: '15:30', label: '2:30 PM – 3:30 PM' },
-                { start: '15:30', end: '16:30', label: '3:30 PM – 4:30 PM' },
-              ].map(preset => (
-                <button
-                  key={preset.start}
-                  type="button"
-                  onClick={() => setForm(f => ({ ...f, start_time: preset.start, end_time: preset.end }))}
-                  className={`text-xs px-2.5 py-1 rounded-md border font-medium transition-colors ${
-                    form.start_time === preset.start && form.end_time === preset.end
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-background hover:bg-muted text-foreground'
-                  }`}
-                >
-                  {preset.label}
-                </button>
-              ))}
+            {/* Modal Scrollable Body */}
+            <div className="p-6 overflow-y-auto flex-1 space-y-5">
+              {formError && (
+                <p className="text-destructive text-sm bg-destructive/10 p-2.5 rounded-xl font-medium border border-destructive/20">
+                  {formError}
+                </p>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div>
+                  <label className="text-xs font-semibold text-foreground">Day of the Week *</label>
+                  <select
+                    className="mt-1 w-full border rounded-xl px-3 py-2 text-sm bg-background"
+                    value={form.day_of_week}
+                    onChange={(e) => setForm((f) => ({ ...f, day_of_week: Number(e.target.value) }))}
+                  >
+                    {WEEK_DAYS.map((d) => (
+                      <option key={d} value={d}>
+                        {DAYS[d]} {d === todayDow ? '(Today)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-foreground flex items-center gap-1">
+                      <Clock className="h-3.5 w-3.5 text-muted-foreground" /> Start Time *
+                    </label>
+                    {form.start_time && (
+                      <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-0.5 rounded">
+                        {format12Hour(form.start_time)}
+                      </span>
+                    )}
+                  </div>
+                  <input
+                    type="time"
+                    className="mt-1 w-full border rounded-xl px-3 py-2 text-sm bg-background font-mono"
+                    value={form.start_time}
+                    onChange={(e) => setForm((f) => ({ ...f, start_time: e.target.value }))}
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-foreground flex items-center gap-1">
+                      <Clock className="h-3.5 w-3.5 text-muted-foreground" /> End Time *
+                    </label>
+                    {form.end_time && (
+                      <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-0.5 rounded">
+                        {format12Hour(form.end_time)}
+                      </span>
+                    )}
+                  </div>
+                  <input
+                    type="time"
+                    className="mt-1 w-full border rounded-xl px-3 py-2 text-sm bg-background font-mono"
+                    value={form.end_time}
+                    onChange={(e) => setForm((f) => ({ ...f, end_time: e.target.value }))}
+                  />
+                </div>
+
+                <div className="sm:col-span-2 lg:col-span-3 flex flex-wrap items-center gap-1.5 p-2.5 bg-muted/30 border rounded-xl">
+                  <span className="text-xs text-muted-foreground font-semibold mr-1 flex items-center gap-1">
+                    <Clock className="h-3.5 w-3.5" /> Presets:
+                  </span>
+                  {[
+                    { start: '09:00', end: '10:00', label: '9:00 AM – 10:00 AM' },
+                    { start: '10:00', end: '11:00', label: '10:00 AM – 11:00 AM' },
+                    { start: '11:30', end: '12:30', label: '11:30 AM – 12:30 PM' },
+                    { start: '13:30', end: '14:30', label: '1:30 PM – 2:30 PM' },
+                    { start: '14:30', end: '15:30', label: '2:30 PM – 3:30 PM' },
+                    { start: '15:30', end: '16:30', label: '3:30 PM – 4:30 PM' },
+                  ].map((preset) => (
+                    <button
+                      key={preset.start}
+                      type="button"
+                      onClick={() =>
+                        setForm((f) => ({ ...f, start_time: preset.start, end_time: preset.end }))
+                      }
+                      className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-colors ${
+                        form.start_time === preset.start && form.end_time === preset.end
+                          ? 'bg-primary text-primary-foreground border-primary font-bold shadow-sm'
+                          : 'bg-background hover:bg-muted text-foreground'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-foreground">Subject *</label>
+                  <select
+                    className="mt-1 w-full border rounded-xl px-3 py-2 text-sm bg-background"
+                    value={form.subject_id}
+                    onChange={(e) => handleSubjectChange(e.target.value)}
+                  >
+                    <option value="">
+                      {subjects.length > 0
+                        ? `— Select Subject (${subjects.length} available) —`
+                        : '— No Subjects Available —'}
+                    </option>
+                    {subjects.map((s) => (
+                      <option key={s.subject_id} value={s.subject_id}>
+                        {s.subject_name} ({s.subject_code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-foreground">Batch *</label>
+                  <select
+                    className="mt-1 w-full border rounded-xl px-3 py-2 text-sm bg-background"
+                    value={form.batch_id}
+                    onChange={(e) => setForm((f) => ({ ...f, batch_id: e.target.value }))}
+                  >
+                    <option value="">
+                      {batches.length > 0
+                        ? `— Select Batch (${batches.length} available) —`
+                        : '— No Batches Available —'}
+                    </option>
+                    {batches.map((b) => (
+                      <option key={b.batch_id} value={b.batch_id}>
+                        {b.batch_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-foreground">
+                    Group <span className="text-muted-foreground font-normal">(optional)</span>
+                  </label>
+                  <select
+                    className="mt-1 w-full border rounded-xl px-3 py-2 text-sm bg-background"
+                    value={form.group_id}
+                    onChange={(e) => setForm((f) => ({ ...f, group_id: e.target.value }))}
+                  >
+                    <option value="">— Entire Batch (No Group) —</option>
+                    {groups.map((g) => (
+                      <option key={g.student_group_id} value={g.student_group_id}>
+                        {g.group_name} ({g.group_type})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="bg-primary/5 p-3 rounded-xl border border-primary/20 space-y-1">
+                  <label className="text-xs font-bold text-primary flex items-center gap-1.5">
+                    <Building2 className="h-3.5 w-3.5" />
+                    <span>1. Select Department *</span>
+                  </label>
+                  <select
+                    className="w-full border rounded-lg px-3 py-2 text-sm bg-background font-medium"
+                    value={form.department_id}
+                    onChange={(e) => handleDepartmentChange(e.target.value)}
+                  >
+                    <option value="">— Filter by Department ({departments.length}) —</option>
+                    {departments.map((d) => (
+                      <option key={d.department_id} value={d.department_id}>
+                        {d.department_name} ({d.department_code || 'DEPT'})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-muted-foreground">
+                    Filtering ensures only professors in this department are shown below.
+                  </p>
+                </div>
+
+                <div className="bg-primary/5 p-3 rounded-xl border border-primary/20 space-y-1">
+                  <label className="text-xs font-bold text-primary flex items-center gap-1.5">
+                    <UserCheck className="h-3.5 w-3.5" />
+                    <span>2. Professor / Faculty</span>
+                    {form.department_id && (
+                      <span className="text-[10px] font-normal text-muted-foreground">
+                        ({availableFaculties.length} in{' '}
+                        {deptMap.get(form.department_id)?.department_name || 'dept'})
+                      </span>
+                    )}
+                  </label>
+                  <select
+                    className="w-full border rounded-lg px-3 py-2 text-sm bg-background font-medium"
+                    value={form.faculty_id}
+                    onChange={(e) => setForm((f) => ({ ...f, faculty_id: e.target.value }))}
+                  >
+                    <option value="">
+                      {availableFaculties.length > 0
+                        ? `— Select Professor (${availableFaculties.length} available) —`
+                        : form.department_id
+                        ? '— No Professors in this Department —'
+                        : '— Select Professor —'}
+                    </option>
+                    {availableFaculties.map((f) => {
+                      const dept = deptMap.get(f.department_id || '')
+                      return (
+                        <option key={f.faculty_id} value={f.faculty_id}>
+                          {f.name} {f.designation ? `· ${f.designation}` : ''}{' '}
+                          {dept && !form.department_id ? `(${dept.department_name})` : ''}
+                        </option>
+                      )
+                    })}
+                  </select>
+                  {availableFaculties.length === 0 && form.department_id && (
+                    <p className="text-[10px] text-amber-600">
+                      No professors registered under this department yet. Add in People → Faculty.
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-foreground">
+                    Room / Venue <span className="text-muted-foreground font-normal">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Lecture Hall 1, Lab 3"
+                    className="mt-1 w-full border rounded-xl px-3 py-2 text-sm bg-background"
+                    value={form.room}
+                    onChange={(e) => setForm((f) => ({ ...f, room: e.target.value }))}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-foreground">
+                    Effective From <span className="text-muted-foreground font-normal">(optional)</span>
+                  </label>
+                  <input
+                    type="date"
+                    className="mt-1 w-full border rounded-xl px-3 py-2 text-sm bg-background"
+                    value={form.effective_from}
+                    onChange={(e) => setForm((f) => ({ ...f, effective_from: e.target.value }))}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-foreground">
+                    Effective Until <span className="text-muted-foreground font-normal">(optional)</span>
+                  </label>
+                  <input
+                    type="date"
+                    className="mt-1 w-full border rounded-xl px-3 py-2 text-sm bg-background"
+                    value={form.effective_until}
+                    onChange={(e) => setForm((f) => ({ ...f, effective_until: e.target.value }))}
+                  />
+                </div>
+              </div>
             </div>
-            {/* Subject */}
-            <div>
-              <label className="text-sm font-medium">Subject *</label>
-              <select className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-background"
-                value={form.subject_id} onChange={e => setForm(f => ({ ...f, subject_id: e.target.value }))}>
-                <option value="">{subjects.length > 0 ? `— Select Subject (${subjects.length} available) —` : '— No Subjects Available —'}</option>
-                {subjects.map(s => <option key={s.subject_id} value={s.subject_id}>{s.subject_name} ({s.subject_code})</option>)}
-              </select>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t flex items-center justify-end gap-2.5 bg-muted/20">
+              <button
+                type="button"
+                onClick={() => setShowForm(false)}
+                className="px-4 py-2 rounded-xl border text-sm font-semibold hover:bg-muted transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving}
+                className="px-5 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-bold shadow-md hover:opacity-95 disabled:opacity-60 transition-opacity"
+              >
+                {saving ? 'Saving…' : editing ? 'Update Slot' : 'Save Slot'}
+              </button>
             </div>
-            {/* Batch */}
-            <div>
-              <label className="text-sm font-medium">Batch *</label>
-              <select className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-background"
-                value={form.batch_id} onChange={e => setForm(f => ({ ...f, batch_id: e.target.value }))}>
-                <option value="">{batches.length > 0 ? `— Select Batch (${batches.length} available) —` : '— No Batches Available —'}</option>
-                {batches.map(b => <option key={b.batch_id} value={b.batch_id}>{b.batch_name}</option>)}
-              </select>
-            </div>
-            {/* Faculty */}
-            <div>
-              <label className="text-sm font-medium">Faculty <span className="text-muted-foreground">(optional)</span></label>
-              <select className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-background"
-                value={form.faculty_id} onChange={e => setForm(f => ({ ...f, faculty_id: e.target.value }))}>
-                <option value="">{faculties.length > 0 ? `— Select Faculty (${faculties.length} available) —` : '— None —'}</option>
-                {faculties.map(f => <option key={f.faculty_id} value={f.faculty_id}>{f.name} {f.designation ? `(${f.designation})` : ''}</option>)}
-              </select>
-            </div>
-            {/* Student Group (Optional) */}
-            <div>
-              <label className="text-sm font-medium">Student Group / Sub-batch <span className="text-muted-foreground">(optional)</span></label>
-              <select className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-background"
-                value={form.group_id} onChange={e => setForm(f => ({ ...f, group_id: e.target.value }))}>
-                <option value="">— Entire Batch —</option>
-                {groups.map(g => <option key={g.student_group_id} value={g.student_group_id}>{g.group_name} ({g.group_type})</option>)}
-              </select>
-            </div>
-            {/* Room */}
-            <div>
-              <label className="text-sm font-medium">Room / Hall <span className="text-muted-foreground">(optional)</span></label>
-              <input className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-background"
-                value={form.room} onChange={e => setForm(f => ({ ...f, room: e.target.value }))}
-                placeholder="e.g. Lecture Hall 1, Lab 3" />
-            </div>
-            {/* Effective from */}
-            <div>
-              <label className="text-sm font-medium">Effective From <span className="text-muted-foreground">(optional)</span></label>
-              <input type="date" className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-background"
-                value={form.effective_from} onChange={e => setForm(f => ({ ...f, effective_from: e.target.value }))} />
-            </div>
-            {/* Effective until */}
-            <div>
-              <label className="text-sm font-medium">Effective Until <span className="text-muted-foreground">(optional)</span></label>
-              <input type="date" className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-background"
-                value={form.effective_until} onChange={e => setForm(f => ({ ...f, effective_until: e.target.value }))} />
-            </div>
-          </div>
-          <div className="flex gap-2 justify-end">
-            <button onClick={() => setShowForm(false)} className="px-4 py-2 rounded-lg border text-sm">Cancel</button>
-            <button onClick={handleSave} disabled={saving}
-              className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm disabled:opacity-60">
-              {saving ? 'Saving…' : 'Save Slot'}
-            </button>
           </div>
         </div>
       )}
 
-      {/* Weekly Grid */}
-      {loading ? (
-        <div className="p-10 text-center text-muted-foreground text-sm">Loading timetable…</div>
-      ) : (
+      {viewMode === 'ROW_WISE' && (
+        <div className="space-y-4">
+          {loading ? (
+            <div className="p-12 text-center text-muted-foreground text-sm">
+              Loading timetable schedule…
+            </div>
+          ) : displayedDays.every((d) => d.slots.length === 0) ? (
+            <div className="p-12 text-center bg-card border rounded-2xl space-y-3">
+              <CalendarDays className="h-10 w-10 text-muted-foreground/40 mx-auto" />
+              <p className="font-bold text-foreground">No timetable slots found</p>
+              <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                No classes match the selected filter. Tap <strong>+ Add Slot</strong> above to schedule classes.
+              </p>
+            </div>
+          ) : (
+            displayedDays.map((day) => {
+              if (filterDay === 'ALL' && day.slots.length === 0) {
+                return (
+                  <div
+                    key={day.dow}
+                    className="flex items-center justify-between px-4 py-2.5 bg-muted/20 border border-dashed rounded-xl text-xs text-muted-foreground"
+                  >
+                    <span className="font-semibold text-foreground/70">{day.label}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] italic">No classes scheduled</span>
+                      <button
+                        onClick={() => openCreate(day.dow)}
+                        className="text-primary font-bold hover:underline"
+                      >
+                        + Add
+                      </button>
+                    </div>
+                  </div>
+                )
+              }
+
+              return (
+                <div
+                  key={day.dow}
+                  className={`bg-card border rounded-2xl overflow-hidden shadow-sm transition-all ${
+                    day.isToday ? 'ring-2 ring-primary/60 border-primary' : ''
+                  }`}
+                >
+                  <div
+                    className={`px-5 py-3 flex items-center justify-between ${
+                      day.isToday
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted/40 border-b'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <h3 className="font-bold text-base">{day.label}</h3>
+                      {day.isToday && (
+                        <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-white text-primary uppercase tracking-wider">
+                          Today
+                        </span>
+                      )}
+                      <span
+                        className={`text-xs ${
+                          day.isToday ? 'text-white/80' : 'text-muted-foreground'
+                        }`}
+                      >
+                        ({day.slots.length} {day.slots.length === 1 ? 'class' : 'classes'})
+                      </span>
+                    </div>
+
+                    <button
+                      onClick={() => openCreate(day.dow)}
+                      className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-semibold transition-all ${
+                        day.isToday
+                          ? 'bg-white/20 hover:bg-white/30 text-white'
+                          : 'bg-card border hover:bg-muted text-foreground'
+                      }`}
+                      title={`Add class on ${day.label}`}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      <span>Add Class</span>
+                    </button>
+                  </div>
+
+                  {day.slots.length === 0 ? (
+                    <div className="p-6 text-center text-xs text-muted-foreground">
+                      No classes scheduled for {day.label}.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs text-left border-collapse">
+                        <thead>
+                          <tr className="border-b bg-muted/20 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                            <th className="px-4 py-2.5 min-w-[140px]">Time Slot</th>
+                            <th className="px-4 py-2.5 min-w-[180px]">Subject</th>
+                            <th className="px-4 py-2.5 min-w-[130px]">Batch / Group</th>
+                            <th className="px-4 py-2.5 min-w-[180px]">Professor / Faculty</th>
+                            <th className="px-4 py-2.5 min-w-[120px]">Room</th>
+                            <th className="px-3 py-2.5 min-w-[90px] text-center">Status</th>
+                            <th className="px-4 py-2.5 min-w-[100px] text-right">Actions</th>
+                          </tr>
+                        </thead>
+
+                        <tbody className="divide-y">
+                          {day.slots.map((slot) => {
+                            const fac = facultyMap.get(slot.faculty_id || '')
+                            const dept = fac?.department_id ? deptMap.get(fac.department_id) : null
+                            const duration = formatDuration(slot.start_time, slot.end_time)
+
+                            return (
+                              <tr
+                                key={slot.slot_id}
+                                className={`hover:bg-muted/30 transition-colors ${
+                                  !slot.active ? 'opacity-40' : ''
+                                }`}
+                              >
+                                <td className="px-4 py-3 align-middle font-mono whitespace-nowrap">
+                                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary/10 text-primary font-bold">
+                                    <Clock className="h-3.5 w-3.5" />
+                                    <span>
+                                      {format12Hour(slot.start_time)} – {format12Hour(slot.end_time)}
+                                    </span>
+                                  </div>
+                                  {duration && (
+                                    <div className="text-[10px] text-muted-foreground mt-0.5 pl-6 font-sans">
+                                      Duration: {duration}
+                                    </div>
+                                  )}
+                                </td>
+
+                                <td className="px-4 py-3 align-middle">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-muted text-foreground font-mono">
+                                      {slot.subject_code}
+                                    </span>
+                                    <span className="font-bold text-foreground text-sm">
+                                      {slot.subject_name}
+                                    </span>
+                                  </div>
+                                </td>
+
+                                <td className="px-4 py-3 align-middle">
+                                  <div className="font-semibold text-foreground">
+                                    {slot.batch_name}
+                                  </div>
+                                  {slot.group_name && (
+                                    <div className="text-[10px] text-muted-foreground font-medium">
+                                      Group: {slot.group_name}
+                                    </div>
+                                  )}
+                                </td>
+
+                                <td className="px-4 py-3 align-middle">
+                                  {slot.faculty_name ? (
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs flex-shrink-0">
+                                        {slot.faculty_name.charAt(0)}
+                                      </div>
+                                      <div>
+                                        <div className="font-semibold text-foreground">
+                                          {slot.faculty_name}
+                                        </div>
+                                        <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+                                          {fac?.designation && <span>{fac.designation}</span>}
+                                          {dept && (
+                                            <span className="text-primary/80 font-medium">
+                                              · {dept.department_name}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <span className="text-muted-foreground italic text-xs">
+                                      Unassigned
+                                    </span>
+                                  )}
+                                </td>
+
+                                <td className="px-4 py-3 align-middle text-muted-foreground whitespace-nowrap">
+                                  {slot.room ? (
+                                    <div className="flex items-center gap-1 text-foreground font-medium">
+                                      <MapPin className="h-3.5 w-3.5 text-primary" />
+                                      <span>{slot.room}</span>
+                                    </div>
+                                  ) : (
+                                    <span>—</span>
+                                  )}
+                                </td>
+
+                                <td className="px-3 py-3 align-middle text-center whitespace-nowrap">
+                                  <button
+                                    onClick={() => handleToggleActive(slot)}
+                                    className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-colors ${
+                                      slot.active
+                                        ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20 hover:bg-emerald-500/20'
+                                        : 'bg-muted text-muted-foreground border-border hover:bg-muted/80'
+                                    }`}
+                                    title="Click to toggle active status"
+                                  >
+                                    <span
+                                      className={`w-1.5 h-1.5 rounded-full ${
+                                        slot.active ? 'bg-emerald-500' : 'bg-muted-foreground'
+                                      }`}
+                                    />
+                                    <span>{slot.active ? 'Active' : 'Inactive'}</span>
+                                  </button>
+                                </td>
+
+                                <td className="px-4 py-3 align-middle text-right whitespace-nowrap">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <button
+                                      onClick={() => openEdit(slot)}
+                                      className="p-1.5 rounded-lg border hover:bg-accent text-foreground transition-colors"
+                                      title="Edit class slot"
+                                    >
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDelete(slot)}
+                                      className="p-1.5 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950 transition-colors"
+                                      title="Delete class slot"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )
+            })
+          )}
+        </div>
+      )}
+
+      {viewMode === 'GRID' && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {slotsByDay.filter(d => d.dow !== 0).concat(slotsByDay.filter(d => d.dow === 0)).map(day => (
-            <div key={day.dow}
-              className={`bg-card border rounded-lg overflow-hidden flex flex-col ${day.isToday ? 'ring-2 ring-primary' : ''}`}>
-              {/* Day header */}
-              <div className={`px-4 py-2.5 flex items-center justify-between ${day.isToday ? 'bg-primary text-primary-foreground' : 'bg-muted/30 border-b'}`}>
-                <span className={`text-sm font-semibold ${day.isToday ? '' : ''}`}>
-                  {day.label}
-                  {day.isToday && <span className="ml-2 text-xs opacity-75">Today</span>}
+          {displayedDays.map((day) => (
+            <div
+              key={day.dow}
+              className={`bg-card border rounded-2xl overflow-hidden flex flex-col shadow-sm ${
+                day.isToday ? 'ring-2 ring-primary border-primary' : ''
+              }`}
+            >
+              <div
+                className={`px-4 py-2.5 flex items-center justify-between ${
+                  day.isToday ? 'bg-primary text-primary-foreground' : 'bg-muted/30 border-b'
+                }`}
+              >
+                <span className="text-sm font-bold flex items-center gap-2">
+                  <span>{day.label}</span>
+                  {day.isToday && (
+                    <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded bg-white text-primary uppercase">
+                      Today
+                    </span>
+                  )}
                 </span>
-                <button onClick={() => openCreate(day.dow)}
-                  className={`p-1 rounded hover:bg-white/20 transition-colors ${day.isToday ? 'text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
-                  title={`Add slot on ${day.label}`}>
+                <button
+                  onClick={() => openCreate(day.dow)}
+                  className={`p-1 rounded-lg hover:bg-white/20 transition-colors ${
+                    day.isToday
+                      ? 'text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                  }`}
+                  title={`Add slot on ${day.label}`}
+                >
                   <Plus className="h-3.5 w-3.5" />
                 </button>
               </div>
 
-              {/* Slots */}
-              <div className="flex-1 p-2 space-y-2 min-h-[80px]">
+              <div className="flex-1 p-2.5 space-y-2 min-h-[90px]">
                 {day.slots.length === 0 ? (
-                  <p className="text-center text-xs text-muted-foreground py-4 opacity-50">No classes</p>
+                  <p className="text-center text-xs text-muted-foreground py-6 opacity-60">
+                    No classes
+                  </p>
                 ) : (
-                  day.slots.map(slot => (
-                    <div key={slot.slot_id}
-                      className={`border rounded-md px-2.5 py-2 text-xs space-y-0.5 ${slotColor(slot.subject_id)} ${!slot.active ? 'opacity-40' : ''}`}>
+                  day.slots.map((slot) => (
+                    <div
+                      key={slot.slot_id}
+                      className={`border rounded-xl p-2.5 text-xs space-y-1 ${slotColor(
+                        slot.subject_id
+                      )} ${!slot.active ? 'opacity-40' : ''}`}
+                    >
                       <div className="flex items-start justify-between gap-1">
-                        <p className="font-semibold leading-tight truncate">{slot.subject_name}</p>
+                        <p className="font-bold leading-tight truncate text-sm">
+                          {slot.subject_name}
+                        </p>
                         <div className="flex gap-0.5 flex-shrink-0">
-                          <button onClick={() => openEdit(slot)} className="p-0.5 rounded hover:bg-black/10" title="Edit">
+                          <button
+                            onClick={() => openEdit(slot)}
+                            className="p-1 rounded hover:bg-black/10"
+                            title="Edit"
+                          >
                             <Pencil className="h-3 w-3" />
                           </button>
-                          <button onClick={() => handleDelete(slot)} className="p-0.5 rounded hover:bg-black/10" title="Delete">
+                          <button
+                            onClick={() => handleDelete(slot)}
+                            className="p-1 rounded hover:bg-black/10"
+                            title="Delete"
+                          >
                             <Trash2 className="h-3 w-3" />
                           </button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1 font-semibold text-[11px] opacity-90">
+                      <div className="flex items-center gap-1 font-semibold text-[11px] opacity-90 font-mono">
                         <Clock className="h-3 w-3 inline text-primary/80 shrink-0" />
-                        <span>{format12Hour(slot.start_time)} – {format12Hour(slot.end_time)}</span>
+                        <span>
+                          {format12Hour(slot.start_time)} – {format12Hour(slot.end_time)}
+                        </span>
                       </div>
-                      <p className="opacity-70 truncate">{slot.batch_name}</p>
-                      {slot.faculty_name && <p className="opacity-60 truncate">{slot.faculty_name}</p>}
-                      {slot.room && <p className="opacity-60">📍 {slot.room}</p>}
+                      <p className="opacity-80 font-medium truncate">{slot.batch_name}</p>
+                      {slot.faculty_name && (
+                        <p className="opacity-70 truncate text-[11px]">👨‍🏫 {slot.faculty_name}</p>
+                      )}
+                      {slot.room && <p className="opacity-70 text-[11px]">📍 {slot.room}</p>}
                       {!slot.active && (
-                        <button onClick={() => handleToggleActive(slot)}
-                          className="text-[10px] underline opacity-70">Activate</button>
+                        <button
+                          onClick={() => handleToggleActive(slot)}
+                          className="text-[10px] underline opacity-70"
+                        >
+                          Activate
+                        </button>
                       )}
                     </div>
                   ))
                 )}
               </div>
 
-              {/* Day footer — total count */}
-              <div className="px-3 py-1.5 border-t text-[10px] text-muted-foreground text-right">
+              <div className="px-3 py-1.5 border-t text-[10px] text-muted-foreground text-right bg-muted/10">
                 {day.slots.length} slot{day.slots.length !== 1 ? 's' : ''}
               </div>
             </div>
@@ -451,7 +1168,8 @@ export default function TimetablePage() {
       )}
 
       <p className="text-xs text-muted-foreground">
-        💡 <strong>Generate Today's Sessions</strong> reads today's ({DAYS[todayDow]}) timetable and creates attendance sessions for all slots. Already-existing sessions are skipped.
+        💡 <strong>Generate Today's Sessions</strong> reads today's ({DAYS[todayDow]}) timetable and
+        creates attendance sessions for all active slots. Already-existing sessions are skipped.
       </p>
     </div>
   )
