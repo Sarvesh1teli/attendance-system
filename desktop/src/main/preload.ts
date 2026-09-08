@@ -140,6 +140,7 @@ const api: IpcApi = {
     pullCompletedSessions: (options?: { incremental?: boolean; sessionDate?: string }) =>
       ipcRenderer.invoke('sync:pullCompletedSessions', options),
     getStatus: () => ipcRenderer.invoke('sync:getStatus'),
+    testConnection: (url?: string) => ipcRenderer.invoke('sync:testConnection', url),
   },
 
   // Attendance

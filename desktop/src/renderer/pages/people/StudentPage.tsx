@@ -312,6 +312,28 @@ export default function StudentPage() {
     }
   }
 
+  // Quick Status Change (from action menu — no full edit form needed)
+  const handleQuickChangeStatus = async (s: Student, newStatus: StudentStatus) => {
+    try {
+      await window.api.student.update(s.student_id, { current_status: newStatus })
+      const label: Record<StudentStatus, string> = {
+        ACTIVE: 'reactivated as Active',
+        INACTIVE: 'marked Inactive',
+        FAILED: 'marked as Failed',
+        REPEATER: 'marked as Repeater',
+        DETAINED: 'marked as Detained',
+        LEFT: 'marked as Left',
+        DISCONTINUED: 'marked as Discontinued',
+        TRANSFERRED: 'marked as Transferred',
+        COMPLETED: 'marked as Completed',
+      }
+      setSuccessBanner(`${s.name} — ${label[newStatus] ?? newStatus}. Re-push master data to sync with Teacher App.`)
+      await loadData()
+    } catch (err: any) {
+      alert(err.message || 'Failed to update status')
+    }
+  }
+
   // Metrics
   const totalCount = students.length
   const enrolledCount = students.filter((s) => s.face_enrolled).length
@@ -716,6 +738,38 @@ export default function StudentPage() {
                                 <Pencil className="h-3.5 w-3.5 text-amber-500" />
                                 <span>Edit</span>
                               </button>
+                              <div className="border-t my-1" />
+                              {/* Quick status shortcuts */}
+                              {s.current_status !== 'ACTIVE' && (
+                                <button
+                                  type="button"
+                                  onClick={() => { setActionOpenId(null); handleQuickChangeStatus(s, 'ACTIVE') }}
+                                  className="w-full px-3 py-1.5 text-xs text-left hover:bg-emerald-50 flex items-center gap-2 text-emerald-700 transition-colors"
+                                >
+                                  <Check className="h-3.5 w-3.5" />
+                                  <span>Reactivate</span>
+                                </button>
+                              )}
+                              {s.current_status === 'ACTIVE' && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => { setActionOpenId(null); handleQuickChangeStatus(s, 'FAILED') }}
+                                    className="w-full px-3 py-1.5 text-xs text-left hover:bg-rose-50 flex items-center gap-2 text-rose-700 transition-colors"
+                                  >
+                                    <ShieldAlert className="h-3.5 w-3.5" />
+                                    <span>Mark Failed</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => { setActionOpenId(null); handleQuickChangeStatus(s, 'LEFT') }}
+                                    className="w-full px-3 py-1.5 text-xs text-left hover:bg-red-50 flex items-center gap-2 text-red-600 transition-colors"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                    <span>Mark Left</span>
+                                  </button>
+                                </>
+                              )}
                               <div className="border-t my-1" />
                               <button
                                 type="button"

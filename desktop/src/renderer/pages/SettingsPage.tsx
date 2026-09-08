@@ -14,7 +14,10 @@ import {
   Eye,
   EyeOff,
   LogOut,
-  ExternalLink
+  ExternalLink,
+  UploadCloud,
+  DownloadCloud,
+  RefreshCw
 } from 'lucide-react'
 import type {
   Institution,
@@ -25,7 +28,7 @@ import type {
 } from '@main/ipc/types'
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<'INSTITUTE' | 'BACKUP'>('INSTITUTE')
+  const [activeTab, setActiveTab] = useState<'INSTITUTE' | 'CLOUD_SYNC' | 'BACKUP'>('INSTITUTE')
   const [institution, setInstitution] = useState<Institution | null>(null)
   const [cloudUrl, setCloudUrl] = useState('')
   const [form, setForm] = useState({ name: '', address: '', phone: '', email: '' })
@@ -34,6 +37,12 @@ export default function SettingsPage() {
   const [msg, setMsg] = useState('')
   const [cloudMsg, setCloudMsg] = useState('')
   const [isBackupConnected, setIsBackupConnected] = useState(false)
+
+  // Cloud sync operational state
+  const [syncingPush, setSyncingPush] = useState(false)
+  const [syncingPull, setSyncingPull] = useState(false)
+  const [testingConn, setTestingConn] = useState(false)
+  const [syncActionMsg, setSyncActionMsg] = useState<{ text: string; success: boolean } | null>(null)
 
   useEffect(() => {
     Promise.all([
@@ -87,57 +96,115 @@ export default function SettingsPage() {
     }
   }
 
+  const handleTestConnection = async () => {
+    if (!cloudUrl.trim()) return
+    setTestingConn(true)
+    setSyncActionMsg(null)
+    try {
+      const res = await window.api.sync.testConnection(cloudUrl.trim())
+      setSyncActionMsg({
+        text: res.message,
+        success: res.success
+      })
+    } catch (e: any) {
+      setSyncActionMsg({ text: `Cannot reach Cloud backend: ${e.message || 'Network error'}`, success: false })
+    } finally {
+      setTestingConn(false)
+    }
+  }
+
+  const handlePushMaster = async () => {
+    setSyncingPush(true)
+    setSyncActionMsg(null)
+    try {
+      const res = await window.api.sync.pushMasterData()
+      setSyncActionMsg({
+        text: res.success ? (res.message || 'Master data successfully pushed to Cloud!') : (res.message || 'Push failed'),
+        success: res.success
+      })
+    } catch (e: any) {
+      setSyncActionMsg({ text: e.message || 'Failed to push data', success: false })
+    } finally {
+      setSyncingPush(false)
+    }
+  }
+
+  const handlePullSessions = async () => {
+    setSyncingPull(true)
+    setSyncActionMsg(null)
+    try {
+      const res = await window.api.sync.pullCompletedSessions()
+      setSyncActionMsg({
+        text: res.success
+          ? `Pulled ${res.sessionsCount ?? 0} session(s) and ${res.recordsCount ?? 0} attendance record(s) from Cloud!`
+          : (res.message || 'Pull failed'),
+        success: res.success
+      })
+    } catch (e: any) {
+      setSyncActionMsg({ text: e.message || 'Failed to pull sessions', success: false })
+    } finally {
+      setSyncingPull(false)
+    }
+  }
+
   return (
-    <div className="space-y-6 max-w-3xl pb-16">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Settings</h1>
-        <p className="text-muted-foreground text-sm mt-0.5">
-          Configure your institution profile, cloud sync endpoints, and automated database backups
-        </p>
-      </div>
-
-      {/* Intelligent Segmented Menu Navigation */}
-      <div className="flex items-center gap-1.5 p-1.5 bg-muted/60 border rounded-2xl w-full sm:w-fit shadow-inner">
-        <button
-          type="button"
-          onClick={() => setActiveTab('INSTITUTE')}
-          className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-            activeTab === 'INSTITUTE'
-              ? 'bg-card text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
-          }`}
-        >
-          <Building2 className={`h-4 w-4 ${activeTab === 'INSTITUTE' ? 'text-primary' : ''}`} />
-          <span>1. Institute Setup</span>
-          {institution?.name && (
-            <span className="hidden sm:inline text-[10px] px-2 py-0.5 rounded-full font-bold bg-primary/10 text-primary">
-              Active
-            </span>
-          )}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('BACKUP')}
-          className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-            activeTab === 'BACKUP'
-              ? 'bg-card text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
-          }`}
-        >
-          <HardDrive className={`h-4 w-4 ${activeTab === 'BACKUP' ? 'text-primary' : ''}`} />
-          <span>2. Backup Setup</span>
-          <span
-            className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
-              isBackupConnected
-                ? 'bg-emerald-500/15 text-emerald-600 border border-emerald-500/20'
-                : 'bg-amber-500/15 text-amber-600 border border-amber-500/20'
+    <div className="space-y-6 max-w-4xl pb-16">
+      {/* ─── TOP TABS MENU (LEFT ALIGNED) ─────────────────────────────────── */}
+      <div className="border-b pb-4">
+        <div className="flex items-center gap-1.5 p-1 bg-muted/60 border rounded-xl w-fit shadow-sm">
+          <button
+            type="button"
+            onClick={() => setActiveTab('INSTITUTE')}
+            className={`flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+              activeTab === 'INSTITUTE'
+                ? 'bg-card text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
             }`}
           >
-            {isBackupConnected ? 'Connected' : 'Setup Required'}
-          </span>
-        </button>
+            <Building2 className={`h-4 w-4 ${activeTab === 'INSTITUTE' ? 'text-primary' : ''}`} />
+            <span>1. Institute Setup</span>
+            {institution?.name && (
+              <span className="hidden sm:inline text-[10px] px-2 py-0.5 rounded-full font-bold bg-primary/10 text-primary">
+                Active
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('CLOUD_SYNC')}
+            className={`flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+              activeTab === 'CLOUD_SYNC'
+                ? 'bg-card text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
+            }`}
+          >
+            <Cloud className={`h-4 w-4 ${activeTab === 'CLOUD_SYNC' ? 'text-primary' : ''}`} />
+            <span>2. Cloud Sync</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('BACKUP')}
+            className={`flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+              activeTab === 'BACKUP'
+                ? 'bg-card text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
+            }`}
+          >
+            <HardDrive className={`h-4 w-4 ${activeTab === 'BACKUP' ? 'text-primary' : ''}`} />
+            <span>3. Backup Setup</span>
+            <span
+              className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                isBackupConnected
+                  ? 'bg-emerald-500/15 text-emerald-600 border border-emerald-500/20'
+                  : 'bg-amber-500/15 text-amber-600 border border-amber-500/20'
+              }`}
+            >
+              {isBackupConnected ? 'Connected' : 'Setup Required'}
+            </span>
+          </button>
+        </div>
       </div>
 
       {/* ─────────────────────────────────────────────────────────────
@@ -231,7 +298,42 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* 2. Cloud Sync Config */}
+          {/* 2. Application System Details */}
+          <div className="bg-card border rounded-xl p-6 space-y-3 shadow-sm">
+            <div className="flex items-center gap-2 border-b pb-3 mb-1">
+              <Settings2 className="h-5 w-5 text-primary" />
+              <div>
+                <h2 className="font-semibold text-base text-foreground">System & Environment</h2>
+                <p className="text-xs text-muted-foreground">Technical identifiers and application version.</p>
+              </div>
+            </div>
+
+            <div className="text-sm space-y-2 pt-1">
+              <div className="flex justify-between py-1 border-b border-muted/60">
+                <span className="text-muted-foreground">Application Version</span>
+                <AppVersion />
+              </div>
+              <div className="flex justify-between py-1 border-b border-muted/60">
+                <span className="text-muted-foreground">Institution UUID</span>
+                <span className="font-mono text-xs text-foreground">{institution?.id ?? '—'}</span>
+              </div>
+              {institution && (
+                <div className="flex justify-between py-1">
+                  <span className="text-muted-foreground">Last Updated</span>
+                  <span className="text-xs">{new Date(institution.updated_at).toLocaleString()}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          TAB 2: CLOUD SYNC
+      ───────────────────────────────────────────────────────────── */}
+      {activeTab === 'CLOUD_SYNC' && (
+        <div className="space-y-6 animate-in fade-in-50 duration-200">
+          {/* Cloud Synchronization Endpoint */}
           <div className="bg-card border rounded-xl p-6 space-y-4 shadow-sm">
             <div className="flex items-center gap-2 border-b pb-3 mb-1">
               <Cloud className="h-5 w-5 text-primary" />
@@ -268,7 +370,17 @@ export default function SettingsPage() {
               </div>
             )}
 
-            <div className="flex justify-end pt-2">
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+              <button
+                type="button"
+                onClick={handleTestConnection}
+                disabled={testingConn || !cloudUrl.trim()}
+                className="flex items-center gap-2 bg-muted hover:bg-muted/80 text-foreground font-semibold px-4 py-2 rounded-lg text-sm disabled:opacity-60 transition-colors border"
+              >
+                {testingConn ? <Loader2 className="h-4 w-4 animate-spin text-primary" /> : <RefreshCw className="h-4 w-4 text-primary" />}
+                <span>{testingConn ? 'Testing…' : 'Test Connection'}</span>
+              </button>
+
               <button
                 onClick={handleSaveCloud}
                 disabled={savingCloud}
@@ -280,38 +392,86 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* 3. Application System Details */}
-          <div className="bg-card border rounded-xl p-6 space-y-3 shadow-sm">
+          {/* Manual Operations Card */}
+          <div className="bg-card border rounded-xl p-6 space-y-4 shadow-sm">
             <div className="flex items-center gap-2 border-b pb-3 mb-1">
-              <Settings2 className="h-5 w-5 text-primary" />
+              <RefreshCw className="h-5 w-5 text-primary" />
               <div>
-                <h2 className="font-semibold text-base text-foreground">System & Environment</h2>
-                <p className="text-xs text-muted-foreground">Technical identifiers and application version.</p>
+                <h2 className="font-semibold text-base text-foreground">Sync Operations</h2>
+                <p className="text-xs text-muted-foreground">Trigger on-demand master catalog uploads or pull completed attendance logs.</p>
               </div>
             </div>
 
-            <div className="text-sm space-y-2 pt-1">
-              <div className="flex justify-between py-1 border-b border-muted/60">
-                <span className="text-muted-foreground">Application Version</span>
-                <AppVersion />
-              </div>
-              <div className="flex justify-between py-1 border-b border-muted/60">
-                <span className="text-muted-foreground">Institution UUID</span>
-                <span className="font-mono text-xs text-foreground">{institution?.id ?? '—'}</span>
-              </div>
-              {institution && (
-                <div className="flex justify-between py-1">
-                  <span className="text-muted-foreground">Last Updated</span>
-                  <span className="text-xs">{new Date(institution.updated_at).toLocaleString()}</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Push Master Data */}
+              <div className="border rounded-xl p-4 bg-muted/20 flex flex-col justify-between space-y-3">
+                <div>
+                  <div className="flex items-center gap-2 text-foreground font-semibold text-sm">
+                    <UploadCloud className="h-4 w-4 text-primary" />
+                    <span>Push Master Data</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Upload active students, face descriptors, course subjects, batches, and timetable to the cloud server so Teacher App can pull them.
+                  </p>
                 </div>
-              )}
+                <button
+                  type="button"
+                  onClick={handlePushMaster}
+                  disabled={syncingPush}
+                  className="w-full flex items-center justify-center gap-2 bg-primary text-primary-foreground hover:bg-primary/90 px-3 py-2 rounded-lg text-xs font-semibold shadow-sm transition-colors disabled:opacity-60"
+                >
+                  {syncingPush ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UploadCloud className="h-3.5 w-3.5" />}
+                  <span>{syncingPush ? 'Pushing Data…' : 'Push Data to Cloud'}</span>
+                </button>
+              </div>
+
+              {/* Pull Attendance Records */}
+              <div className="border rounded-xl p-4 bg-muted/20 flex flex-col justify-between space-y-3">
+                <div>
+                  <div className="flex items-center gap-2 text-foreground font-semibold text-sm">
+                    <DownloadCloud className="h-4 w-4 text-emerald-600" />
+                    <span>Pull Attendance Records</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Download and ingest submitted attendance sessions and recognized student verification logs marked by teachers in Teacher App.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handlePullSessions}
+                  disabled={syncingPull}
+                  className="w-full flex items-center justify-center gap-2 bg-emerald-600 text-white hover:bg-emerald-700 px-3 py-2 rounded-lg text-xs font-semibold shadow-sm transition-colors disabled:opacity-60"
+                >
+                  {syncingPull ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <DownloadCloud className="h-3.5 w-3.5" />}
+                  <span>{syncingPull ? 'Pulling Attendance…' : 'Pull Attendance Records'}</span>
+                </button>
+              </div>
             </div>
+
+            {syncActionMsg && (
+              <div
+                className={`p-3 rounded-lg text-xs border animate-in fade-in ${
+                  syncActionMsg.success
+                    ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20'
+                    : 'bg-destructive/10 text-destructive border-destructive/20'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  {syncActionMsg.success ? (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
+                  )}
+                  <span>{syncActionMsg.text}</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
 
       {/* ─────────────────────────────────────────────────────────────
-          TAB 2: BACKUP SETUP
+          TAB 3: BACKUP SETUP
       ───────────────────────────────────────────────────────────── */}
       {activeTab === 'BACKUP' && (
         <div className="space-y-6 animate-in fade-in-50 duration-200">

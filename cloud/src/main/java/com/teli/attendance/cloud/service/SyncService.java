@@ -45,6 +45,27 @@ public class SyncService {
     }
 
     /**
+     * Drop all synced data across students, classes, topics, sessions, and records.
+     */
+    @Transactional
+    public void resetAllData(String institutionId) {
+        log.info("Resetting all cloud sync data for institutionId: {}", institutionId);
+        if (institutionId != null && !institutionId.isBlank()) {
+            studentRepo.deleteAll(studentRepo.findByInstitutionId(institutionId));
+            classRepo.deleteAll(classRepo.findByInstitutionId(institutionId));
+            topicRepo.deleteAll(topicRepo.findByInstitutionId(institutionId));
+            sessionRepo.deleteAll(sessionRepo.findByInstitutionId(institutionId));
+            recordRepo.deleteAll(recordRepo.findByInstitutionId(institutionId));
+        } else {
+            studentRepo.deleteAll();
+            classRepo.deleteAll();
+            topicRepo.deleteAll();
+            sessionRepo.deleteAll();
+            recordRepo.deleteAll();
+        }
+    }
+
+    /**
      * Process PWA Push: Receives session and attendance records from Teacher Mobile App.
      * Enforces Version Conflict rules and Option A VOIDED rule on cancellation.
      */

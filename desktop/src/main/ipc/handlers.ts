@@ -175,6 +175,7 @@ export function registerIpcHandlers(ipcMain: IpcMain): void {
   ipcMain.handle('sync:pushMasterData', () => syncService.pushMasterData())
   ipcMain.handle('sync:pullCompletedSessions', (_e, options) => syncService.pullCompletedSessions(options))
   ipcMain.handle('sync:getStatus', () => syncService.getStatus())
+  ipcMain.handle('sync:testConnection', (_e, url) => syncService.testConnection(url))
 
   // ─── Attendance Session ───────────────────────────────────────────────────
   const attendanceRepo = new AttendanceSessionRepository(db)

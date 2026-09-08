@@ -28,4 +28,18 @@ public class PwaSyncController {
         PwaSyncPullResponse response = syncService.getPwaPullData(institutionId, facultyId);
         return ResponseEntity.ok(response);
     }
+
+    @PostMapping("/reset")
+    public ResponseEntity<java.util.Map<String, Object>> resetData(
+            @RequestParam(required = false) String institutionId) {
+        syncService.resetAllData(institutionId);
+        return ResponseEntity.ok(java.util.Map.of("success", true, "message", "All cloud sync data dropped successfully"));
+    }
+
+    @DeleteMapping("/reset")
+    public ResponseEntity<java.util.Map<String, Object>> deleteResetData(
+            @RequestParam(required = false) String institutionId) {
+        syncService.resetAllData(institutionId);
+        return ResponseEntity.ok(java.util.Map.of("success", true, "message", "All cloud sync data dropped successfully"));
+    }
 }

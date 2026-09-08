@@ -9,11 +9,51 @@ export interface SyncStatus {
 }
 
 export class DesktopSyncService {
-  private cloudUrl: string = 'http://localhost:8086/api/v1/sync/desktop'
+  private defaultCloudUrl: string = 'http://localhost:8086/api/v1/sync/desktop'
   private lastSyncTime: string | null = null
   private lastSyncResult: 'SUCCESS' | 'FAILED' | 'NEVER' = 'NEVER'
 
   constructor(private db: Database.Database) {}
+
+  public getCloudUrl(): string {
+    try {
+      const row = this.db
+        .prepare("SELECT config_value FROM institution_configuration WHERE config_key = 'cloud_sync_url' LIMIT 1")
+        .get() as { config_value: string } | undefined
+      if (row && row.config_value && row.config_value.trim()) {
+        return row.config_value.trim().replace(/\/+$/, '')
+      }
+    } catch {
+      // ignore
+    }
+    return this.defaultCloudUrl
+  }
+
+  async testConnection(customUrl?: string): Promise<{ success: boolean; message: string; status?: number }> {
+    try {
+      const targetUrl = (customUrl && customUrl.trim()) ? customUrl.trim().replace(/\/+$/, '') : this.getCloudUrl()
+      const instId = this.institutionId()
+      const res = await fetch(`${targetUrl}/pull?institutionId=${encodeURIComponent(instId)}`)
+      if (res.ok) {
+        return {
+          success: true,
+          status: res.status,
+          message: `Connection successful! Cloud backend is online and responding (HTTP ${res.status}).`
+        }
+      } else {
+        return {
+          success: false,
+          status: res.status,
+          message: `Cloud responded with HTTP ${res.status}: ${res.statusText}`
+        }
+      }
+    } catch (err: any) {
+      return {
+        success: false,
+        message: err instanceof Error ? err.message : 'Cannot connect to Cloud'
+      }
+    }
+  }
 
   private institutionId(): string {
     const row = this.db.prepare('SELECT id FROM institution LIMIT 1').get() as { id: string } | undefined
@@ -30,6 +70,9 @@ export class DesktopSyncService {
         .all(instId)
 
       // 2. Gather students (MINIMAL - NO BIOMETRIC PHOTOS - ONLY 128-D VECTOR IF ENROLLED)
+      // Only ACTIVE and REPEATER students are synced to cloud/Teacher App.
+      // FAILED, LEFT, DISCONTINUED, TRANSFERRED students are excluded from future rosters
+      // but their historical attendance_record rows remain intact in both databases.
       const students = this.db
         .prepare(`
           SELECT
@@ -45,6 +88,7 @@ export class DesktopSyncService {
           LEFT JOIN student_admission sa ON s.student_id = sa.student_id
           LEFT JOIN face_enrollment fe ON fe.entity_id = s.student_id AND fe.status = 'ENROLLED'
           WHERE s.institution_id = ?
+            AND s.current_status IN ('ACTIVE', 'REPEATER')
         `)
         .all(instId)
 
@@ -128,7 +172,16 @@ export class DesktopSyncService {
         classes,
       }
 
-      const res = await fetch(`${this.cloudUrl}/push`, {
+      const cloudUrl = this.getCloudUrl()
+
+      // Reset cloud master data before push so only current desktop records exist
+      try {
+        await fetch(`${cloudUrl}/reset?institutionId=${encodeURIComponent(instId)}`, { method: 'POST' })
+      } catch (e) {
+        console.warn('Cloud reset before push skipped or failed:', e)
+      }
+
+      const res = await fetch(`${cloudUrl}/push`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -158,7 +211,8 @@ export class DesktopSyncService {
   }): Promise<{ success: boolean; sessionsCount: number; recordsCount: number; message?: string }> {
     try {
       const instId = this.institutionId()
-      let url = `${this.cloudUrl}/pull?institutionId=${instId}`
+      const cloudUrl = this.getCloudUrl()
+      let url = `${cloudUrl}/pull?institutionId=${instId}`
       if (options?.sessionDate) {
         url += `&sessionDate=${encodeURIComponent(options.sessionDate)}`
       } else if (options?.incremental && this.lastSyncTime) {
@@ -243,6 +297,15 @@ export class DesktopSyncService {
 
         const validInsertedSessionIds = new Set<string>()
 
+        // Prepared statement to close any OPEN session that would conflict
+        // with the unique partial index uq_open_faculty_session before inserting
+        const closeOpenSessionStmt = this.db.prepare(`
+          UPDATE attendance_session
+          SET status = 'SUBMITTED', sync_status = 'SYNCED', updated_at = datetime('now')
+          WHERE institution_id = ? AND faculty_id = ? AND subject_id = ? AND batch_id = ?
+            AND session_date = ? AND status = 'OPEN' AND session_id != ?
+        `)
+
         for (const s of data.sessions || []) {
           // If subject or batch does not exist in SQLite (e.g. test dummy sessions), skip gracefully
           if (!validSubjectSet.has(s.subjectId) || !validBatchSet.has(s.batchId)) {
@@ -281,6 +344,17 @@ export class DesktopSyncService {
           } else if (!['DRAFT', 'OPEN', 'SUBMITTED', 'LOCKED', 'SYNC_PENDING', 'SYNCED', 'CANCELLED', 'VOIDED', 'SYNC_CONFLICT'].includes(sessionStatus)) {
             sessionStatus = 'SUBMITTED'
           }
+
+          // Close any conflicting OPEN session before inserting so the
+          // unique partial index (uq_open_faculty_session) doesn't fire
+          closeOpenSessionStmt.run(
+            instId,
+            effectiveFacultyId,
+            s.subjectId,
+            s.batchId,
+            s.sessionDate,
+            s.sessionId  // don't close the session we're about to upsert
+          )
 
           insertSessionStmt.run(
             s.sessionId,
@@ -385,7 +459,7 @@ export class DesktopSyncService {
       .get('PENDING') as { count: number } | undefined
 
     return {
-      cloudUrl: this.cloudUrl,
+      cloudUrl: this.getCloudUrl(),
       lastSyncTime: this.lastSyncTime,
       lastSyncResult: this.lastSyncResult,
       pendingOutboxCount: outboxCountRow?.count ?? 0,

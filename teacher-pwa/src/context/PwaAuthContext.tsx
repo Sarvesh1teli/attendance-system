@@ -30,9 +30,20 @@ export function PwaAuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  const PWA_STORAGE_EPOCH_KEY = 'pwa_data_reset_epoch'
+  const CURRENT_STORAGE_EPOCH = 'epoch_2026_09_08_fresh_start_v1'
+
   useEffect(() => {
     async function init() {
       try {
+        if (localStorage.getItem(PWA_STORAGE_EPOCH_KEY) !== CURRENT_STORAGE_EPOCH) {
+          console.log('[PWA] Resetting all local cached data as requested...')
+          await clearAllPwaData()
+          localStorage.clear()
+          sessionStorage.clear()
+          localStorage.setItem(PWA_STORAGE_EPOCH_KEY, CURRENT_STORAGE_EPOCH)
+        }
+
         await seedInitialDataIfEmpty()
         const saved = await db.teacherProfile.toCollection().first()
         if (saved) {
@@ -171,7 +182,8 @@ export function PwaAuthProvider({ children }: { children: React.ReactNode }) {
               ? teacher.institution_id
               : (sess.institution_id && sess.institution_id !== 'inst-001' ? sess.institution_id : '392112ee-d8da-40ce-a563-8a835b45a1bd')
 
-          const response = await fetch('http://localhost:8086/api/v1/sync/pwa/push', {
+          const apiBase = (import.meta as any).env?.VITE_CLOUD_API_URL ?? (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:8086' : '')
+          const response = await fetch(`${apiBase}/api/v1/sync/pwa/push`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -199,8 +211,9 @@ export function PwaAuthProvider({ children }: { children: React.ReactNode }) {
 
       // Also pull latest assignments & topics if online
       try {
+        const apiBase = (import.meta as any).env?.VITE_CLOUD_API_URL ?? (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:8086' : '')
         const pullRes = await fetch(
-          `http://localhost:8086/api/v1/sync/pwa/pull?institutionId=${teacher?.institution_id || ''}`
+          `${apiBase}/api/v1/sync/pwa/pull?institutionId=${teacher?.institution_id || ''}`
         )
         if (pullRes.ok) {
           const pullData = await pullRes.json()

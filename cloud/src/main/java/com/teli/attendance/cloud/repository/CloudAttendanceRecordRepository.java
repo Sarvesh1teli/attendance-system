@@ -8,6 +8,7 @@ import java.util.Optional;
 
 @Repository
 public interface CloudAttendanceRecordRepository extends JpaRepository<CloudAttendanceRecord, String> {
+    List<CloudAttendanceRecord> findByInstitutionId(String institutionId);
     List<CloudAttendanceRecord> findByInstitutionIdAndSessionId(String institutionId, String sessionId);
     Optional<CloudAttendanceRecord> findByInstitutionIdAndSessionIdAndStudentId(String institutionId, String sessionId, String studentId);
 }

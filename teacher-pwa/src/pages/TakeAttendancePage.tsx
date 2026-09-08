@@ -24,13 +24,15 @@ import {
   ScanFace,
   Camera,
   RefreshCw,
+  Trash2,
+  Users,
 } from 'lucide-react'
 import { PwaFaceScanner } from '../components/face/PwaFaceScanner'
 
 export default function TakeAttendancePage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const { teacher, refreshSyncCount, triggerSync } = usePwaAuth()
+  const { teacher, refreshSyncCount, triggerSync, clearAllData } = usePwaAuth()
 
   const classIdParam = searchParams.get('classId')
   const sessionIdParam = searchParams.get('sessionId')
@@ -285,6 +287,23 @@ export default function TakeAttendancePage() {
     }
   }
 
+  // Drop all local data from Teacher App so fresh data can be pushed from desktop
+  const handleDropAllData = async () => {
+    if (
+      !confirm(
+        'Drop all local data from Teacher App? All cached students, classes, and attendance records will be wiped clean.'
+      )
+    )
+      return
+    await clearAllData()
+    setStudents([])
+    setRecords({})
+    setTopics([])
+    setClasses([])
+    setSelectedClassId('')
+    alert('All Teacher App data has been wiped clean! Push master data from Desktop, then tap 🔄 Sync.')
+  }
+
   // 5. Complete and Lock Attendance Session
   const handleFinishSession = async () => {
     if (!currentSession) return
@@ -292,6 +311,19 @@ export default function TakeAttendancePage() {
       alert('Please select or specify the topic covered during this session.')
       return
     }
+
+    // Confirmation before submitting
+    const totalStudents = students.length
+    const presentNow = Object.values(records).filter((r) => r.status === 'PRESENT' || r.status === 'LATE').length
+    const absentNow = totalStudents - presentNow
+    const confirmed = window.confirm(
+      `Submit Attendance?\n\n` +
+      `✅ Present / Late : ${presentNow} student${presentNow !== 1 ? 's' : ''}\n` +
+      `❌ Absent          : ${absentNow} student${absentNow !== 1 ? 's' : ''}\n` +
+      `📋 Total           : ${totalStudents} student${totalStudents !== 1 ? 's' : ''}\n\n` +
+      `Once submitted, attendance will be synced to the server.\nDo you want to proceed?`
+    )
+    if (!confirmed) return
 
     setSaving(true)
     const now = new Date()
@@ -548,6 +580,14 @@ export default function TakeAttendancePage() {
           >
             <RefreshCw className={`h-4 w-4 ${syncingRoster ? 'animate-spin text-primary' : ''}`} />
           </button>
+          <button
+            onClick={handleDropAllData}
+            title="Drop all local data from Teacher App"
+            className="p-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 transition-all flex items-center gap-1.5 text-xs font-semibold"
+          >
+            <Trash2 className="h-4 w-4" />
+            <span className="hidden sm:inline">Drop All Data</span>
+          </button>
         </div>
       </div>
 
@@ -610,7 +650,18 @@ export default function TakeAttendancePage() {
 
       {/* Student Roster List with Quick Status Toggles */}
       <div className="space-y-2">
-        {filteredStudents.map((s) => {
+        {filteredStudents.length === 0 ? (
+          <div className="p-8 border border-dashed rounded-2xl text-center bg-card/40 space-y-3">
+            <Users className="h-8 w-8 text-muted-foreground/40 mx-auto" />
+            <div className="space-y-1">
+              <p className="text-xs font-bold text-foreground">No students in roster</p>
+              <p className="text-[11px] text-muted-foreground max-w-xs mx-auto">
+                Teacher App local data is cleared. Push fresh master data from Desktop, then tap <strong>🔄 Sync</strong> above to pull.
+              </p>
+            </div>
+          </div>
+        ) : (
+          filteredStudents.map((s) => {
           const r = records[s.student_id]
           const status = r ? r.status : 'ABSENT'
 
@@ -689,7 +740,7 @@ export default function TakeAttendancePage() {
               </div>
             </div>
           )
-        })}
+        }))}
       </div>
 
       {/* Finish and Lock Session Button */}

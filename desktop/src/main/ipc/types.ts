@@ -123,6 +123,7 @@ export interface IpcApi {
       sessionDate?: string
     }) => Promise<{ success: boolean; sessionsCount: number; recordsCount: number; message?: string }>
     getStatus: () => Promise<DesktopSyncStatus>
+    testConnection: (url?: string) => Promise<{ success: boolean; message: string; status?: number }>
   }
 
   attendance: {
