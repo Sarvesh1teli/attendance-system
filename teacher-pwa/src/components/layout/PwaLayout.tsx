@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Outlet, NavLink } from 'react-router-dom'
-import { Calendar, ClipboardCheck, History, User, Wifi, WifiOff, RefreshCw } from 'lucide-react'
+import { Home, Calendar, ClipboardCheck, History, User, Wifi, WifiOff, RefreshCw } from 'lucide-react'
 import { usePwaAuth } from '../../context/PwaAuthContext'
 import { cn } from '../../lib/utils'
 
@@ -70,11 +70,25 @@ export function PwaLayout() {
       {/* Bottom Navigation Bar */}
       <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto h-16 bg-card/95 backdrop-blur-md border-t border-border flex items-center justify-around px-2 z-40">
         <NavLink
+          to="/"
+          end
+          className={({ isActive }) =>
+            cn(
+              'flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors',
+              isActive ? 'text-primary font-bold' : 'text-muted-foreground hover:text-foreground'
+            )
+          }
+        >
+          <Home className="h-5 w-5" />
+          <span className="mt-1">Home</span>
+        </NavLink>
+
+        <NavLink
           to="/schedule"
           className={({ isActive }) =>
             cn(
               'flex flex-col items-center justify-center flex-1 py-1 text-[11px] font-medium transition-colors',
-              isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+              isActive ? 'text-primary font-bold' : 'text-muted-foreground hover:text-foreground'
             )
           }
         >

@@ -2,6 +2,8 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { PwaAuthProvider, usePwaAuth } from './context/PwaAuthContext'
 import { PwaLayout } from './components/layout/PwaLayout'
 import PwaLoginPage from './pages/PwaLoginPage'
+import DashboardPage from './pages/DashboardPage'
+import ClassDetailPage from './pages/ClassDetailPage'
 import SchedulePage from './pages/SchedulePage'
 import TakeAttendancePage from './pages/TakeAttendancePage'
 import SessionHistoryPage from './pages/SessionHistoryPage'
@@ -39,14 +41,15 @@ export default function App() {
             </ProtectedTeacherRoute>
           }
         >
-          <Route index element={<Navigate to="/schedule" replace />} />
+          <Route index element={<DashboardPage />} />
+          <Route path="class/:classId" element={<ClassDetailPage />} />
           <Route path="schedule" element={<SchedulePage />} />
           <Route path="attendance" element={<TakeAttendancePage />} />
           <Route path="history" element={<SessionHistoryPage />} />
           <Route path="profile" element={<TeacherProfilePage />} />
         </Route>
 
-        <Route path="*" element={<Navigate to="/schedule" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </PwaAuthProvider>
   )
