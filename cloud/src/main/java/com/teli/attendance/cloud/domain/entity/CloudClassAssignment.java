@@ -24,6 +24,13 @@ public class CloudClassAssignment {
     @Column(length = 64, nullable = false)
     private String facultyId;
 
+    private String facultyName;
+
+    private String department;
+
+    @Column(length = 64)
+    private String employeeId;
+
     @Column(length = 64, nullable = false)
     private String batchId;
 
@@ -49,6 +56,9 @@ public class CloudClassAssignment {
     private String groupId;
 
     private String groupName;
+
+    @Column(name = "day_of_week")
+    private Integer dayOfWeek;
 
     @Column(length = 64)
     private String scheduleTime;

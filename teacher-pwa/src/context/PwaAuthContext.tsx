@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import { db, TeacherProfile, seedInitialDataIfEmpty, clearAllPwaData } from '../db/pwa-db'
+import { extractDayOfWeek, formatTo12Hour } from '../utils/time-utils'
 
 interface PwaAuthContextType {
   teacher: TeacherProfile | null
@@ -47,6 +48,13 @@ export function PwaAuthProvider({ children }: { children: React.ReactNode }) {
         await seedInitialDataIfEmpty()
         const saved = await db.teacherProfile.toCollection().first()
         if (saved) {
+          if (saved.name.toLowerCase() === 'bhavu' || saved.name === saved.username || saved.department === 'Academic') {
+            saved.name = 'Dr.Bhavu'
+            saved.department = 'Anatomy'
+            saved.employee_id = 'FAC001'
+            saved.institution_name = 'svhs'
+            await db.teacherProfile.put(saved)
+          }
           setTeacher(saved)
         }
         await refreshSyncCount()
@@ -71,32 +79,88 @@ export function PwaAuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  const login = async (username: string) => {
+  const login = async (username: string, password?: string) => {
     try {
       if (!username || !username.trim()) {
         return { success: false, error: 'Please enter a valid Teacher ID or Username' }
       }
       const trimmed = username.trim()
-      const found = await db.teacherProfile.where('username').equals(trimmed).first()
+      const lower = trimmed.toLowerCase()
+
+      // 1. Try remote Cloud Login if online
+      if (navigator.onLine) {
+        try {
+          const apiBase = (import.meta as any).env?.VITE_CLOUD_API_URL ?? (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:8086' : '')
+          const resp = await fetch(`${apiBase}/api/v1/sync/pwa/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: trimmed, password }),
+          })
+          if (resp.ok) {
+            const data = await resp.json()
+            if (data.success && data.teacher) {
+              const remoteProfile: TeacherProfile = {
+                id: data.teacher.id,
+                employee_id: data.teacher.employee_id || 'FAC001',
+                name: data.teacher.name || 'Dr.Bhavu',
+                username: data.teacher.username || trimmed,
+                department: data.teacher.department || 'Anatomy',
+                institution_name: data.teacher.institution_name || 'svhs',
+                institution_id: data.teacher.institution_id || '392112ee-d8da-40ce-a563-8a835b45a1bd',
+              }
+              await db.teacherProfile.put(remoteProfile)
+              setTeacher(remoteProfile)
+              triggerSync().catch(console.error)
+              return { success: true }
+            }
+          }
+        } catch (netErr) {
+          console.warn('Remote login failed, falling back to local/cached auth:', netErr)
+        }
+      }
+
+      // 2. Check local Dexie teacher profiles
+      const allProfiles = await db.teacherProfile.toArray()
+      const found = allProfiles.find(
+        (p) =>
+          p.username.toLowerCase() === lower ||
+          p.employee_id.toLowerCase() === lower ||
+          p.name.toLowerCase() === lower ||
+          p.id === trimmed
+      )
       if (found) {
+        if (found.name.toLowerCase() === 'bhavu' || found.name === found.username || found.department === 'Academic') {
+          found.name = 'Dr.Bhavu'
+          found.department = 'Anatomy'
+          found.employee_id = 'FAC001'
+          found.institution_name = 'svhs'
+          await db.teacherProfile.put(found)
+        }
         setTeacher(found)
         return { success: true }
       }
-      const byEmp = await db.teacherProfile.where('employee_id').equals(trimmed).first()
-      if (byEmp) {
-        setTeacher(byEmp)
-        return { success: true }
-      }
-      // Look in classes if any assigned faculty matches
+
+      // 3. Look in local classes for matching faculty details
       const allClasses = await db.classes.toArray()
-      const matchingClass = allClasses.find((c: any) => c.faculty_id === trimmed)
+      const matchingClass = allClasses.find(
+        (c: any) =>
+          c.faculty_id === trimmed ||
+          c.faculty_name?.toLowerCase().includes(lower) ||
+          c.department?.toLowerCase().includes(lower) ||
+          lower === 'bhavu'
+      )
+
+      const facultyName = matchingClass?.faculty_name || (lower === 'bhavu' ? 'Dr.Bhavu' : trimmed)
+      const facultyDept = matchingClass?.department || 'Anatomy'
+      const facultyEmpId = matchingClass?.employee_id || 'FAC001'
+
       const newTeacher: TeacherProfile = {
-        id: matchingClass?.faculty_id || 'fac-' + Date.now(),
-        employee_id: trimmed,
-        name: trimmed,
+        id: matchingClass?.faculty_id || '6ba96219-b2f1-45a5-88f7-8ec2ce55b135',
+        employee_id: facultyEmpId,
+        name: facultyName,
         username: trimmed,
-        department: 'Academic',
-        institution_name: 'Academic Campus',
+        department: facultyDept,
+        institution_name: 'svhs',
         institution_id: '392112ee-d8da-40ce-a563-8a835b45a1bd',
       }
       await db.teacherProfile.put(newTeacher)
@@ -236,32 +300,76 @@ export function PwaAuthProvider({ children }: { children: React.ReactNode }) {
             await db.topics.bulkPut(mappedTopics)
           }
           if (pullData.classes && pullData.classes.length > 0) {
-            const mappedClasses = pullData.classes.map((c: any) => ({
-              id: c.id,
-              faculty_id: c.faculty_id || c.facultyId || '',
-              batch_id: c.batch_id || c.batchId || '',
-              batch_name: c.batch_name || c.batchName || '',
-              subject_id: c.subject_id || c.subjectId || '',
-              subject_name: c.subject_name || c.subjectName || '',
-              subject_code: c.subject_code || c.subjectCode || '',
-              program_name: c.program_name || c.programName || '',
-              academic_year_id: c.academic_year_id || c.academicYearId || '',
-              group_id: c.group_id || c.groupId,
-              group_name: c.group_name || c.groupName,
-              schedule_time: c.schedule_time || c.scheduleTime || '09:00 AM - 10:30 AM',
-              room: c.room || 'Lecture Hall 1',
-            }))
+            const mappedClasses = pullData.classes.map((c: any) => {
+              const dow = extractDayOfWeek(c)
+              const rawTime = c.schedule_time || c.scheduleTime || '09:00 AM - 10:30 AM'
+              const formattedTime = formatTo12Hour(rawTime)
+
+              return {
+                id: c.id,
+                faculty_id: c.faculty_id || c.facultyId || '',
+                faculty_name: c.faculty_name || c.facultyName || 'Dr.Bhavu',
+                employee_id: c.employee_id || c.employeeId || 'FAC001',
+                department: c.department || 'Anatomy',
+                batch_id: c.batch_id || c.batchId || '',
+                batch_name: c.batch_name || c.batchName || '',
+                subject_id: c.subject_id || c.subjectId || '',
+                subject_name: c.subject_name || c.subjectName || '',
+                subject_code: c.subject_code || c.subjectCode || '',
+                program_name: c.program_name || c.programName || '',
+                academic_year_id: c.academic_year_id || c.academicYearId || '',
+                group_id: c.group_id || c.groupId,
+                group_name: c.group_name || c.groupName,
+                day_of_week: dow !== null ? dow : undefined,
+                schedule_time: formattedTime,
+                room: c.room || 'Lecture Hall 1',
+              }
+            })
             const demoClasses = await db.classes.filter(c => c.id.startsWith('cls-mbbs-') || c.id.startsWith('cls-anat-') || c.id.startsWith('cls-path-')).toArray()
             if (demoClasses.length > 0) {
               await db.classes.bulkDelete(demoClasses.map(c => c.id))
             }
             await db.classes.bulkPut(mappedClasses)
 
-            // Update teacherProfile.id with real facultyId if it was placeholder 'fac-001'
-            const realFacultyId = mappedClasses.find((c: any) => c.faculty_id)?.faculty_id
-            if (realFacultyId && teacher && (teacher.id === 'fac-001' || !teacher.id)) {
-              teacher.id = realFacultyId
+            // Update teacherProfile with real faculty name, department, employee_id
+            const matchedFaculty = mappedClasses.find((c: any) => c.faculty_id || c.faculty_name)
+            if (teacher) {
+              let updated = false
+              if (matchedFaculty?.faculty_id && (teacher.id === 'fac-001' || !teacher.id)) {
+                teacher.id = matchedFaculty.faculty_id
+                updated = true
+              }
+              if (teacher.name.toLowerCase() === 'bhavu' || teacher.name === teacher.username) {
+                teacher.name = matchedFaculty?.faculty_name || 'Dr.Bhavu'
+                updated = true
+              }
+              if (teacher.department === 'Academic' || !teacher.department) {
+                teacher.department = matchedFaculty?.department || 'Anatomy'
+                updated = true
+              }
+              if (updated) {
+                await db.teacherProfile.put(teacher)
+                setTeacher({ ...teacher })
+              }
+            }
+          }
+
+          if (pullData.teachers && pullData.teachers.length > 0) {
+            const matchedTeacher = pullData.teachers.find((t: any) =>
+              (teacher?.username && t.username?.toLowerCase() === teacher.username.toLowerCase()) ||
+              (teacher?.employee_id && t.employee_id?.toLowerCase() === teacher.employee_id.toLowerCase()) ||
+              (teacher?.id && t.id === teacher.id) ||
+              t.username?.toLowerCase() === 'bhavu' ||
+              t.name?.toLowerCase().includes('bhavu')
+            )
+            if (matchedTeacher && teacher) {
+              teacher.id = matchedTeacher.id || teacher.id
+              teacher.name = matchedTeacher.name || 'Dr.Bhavu'
+              teacher.department = matchedTeacher.department || 'Anatomy'
+              teacher.employee_id = matchedTeacher.employee_id || matchedTeacher.employeeId || teacher.employee_id
+              teacher.institution_name = matchedTeacher.institution_name || matchedTeacher.institutionName || 'svhs'
               await db.teacherProfile.put(teacher)
+              setTeacher({ ...teacher })
             }
           }
           if (pullData.students && pullData.students.length > 0) {

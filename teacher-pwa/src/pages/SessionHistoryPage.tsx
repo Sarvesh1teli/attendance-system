@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { db, LocalAttendanceSession, LocalAttendanceRecord } from '../db/pwa-db'
 import { usePwaAuth } from '../context/PwaAuthContext'
 import { Calendar, CheckCircle2, Clock, CloudUpload, BookOpen, AlertCircle } from 'lucide-react'
+import { formatTo12Hour } from '../utils/time-utils'
 
 export default function SessionHistoryPage() {
   const { isOnline, pendingSyncCount, triggerSync } = usePwaAuth()
@@ -114,7 +115,7 @@ export default function SessionHistoryPage() {
                     </div>
                     <div className="text-xs text-muted-foreground flex items-center gap-1.5 mt-1">
                       <Clock className="h-3 w-3" />
-                      <span>{s.start_time} — {s.end_time || 'In Progress'}</span>
+                      <span>{formatTo12Hour(s.start_time)} — {formatTo12Hour(s.end_time) || 'In Progress'}</span>
                     </div>
                   </div>
 

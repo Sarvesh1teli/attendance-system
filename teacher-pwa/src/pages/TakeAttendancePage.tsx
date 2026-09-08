@@ -24,10 +24,10 @@ import {
   ScanFace,
   Camera,
   RefreshCw,
-  Trash2,
   Users,
 } from 'lucide-react'
 import { PwaFaceScanner } from '../components/face/PwaFaceScanner'
+import { formatTo12Hour } from '../utils/time-utils'
 
 export default function TakeAttendancePage() {
   const [searchParams] = useSearchParams()
@@ -36,6 +36,7 @@ export default function TakeAttendancePage() {
 
   const classIdParam = searchParams.get('classId')
   const sessionIdParam = searchParams.get('sessionId')
+  const sessionTypeParam = (searchParams.get('sessionType') as 'REGULAR' | 'EXTRA' | 'SUBSTITUTE' | 'RESCHEDULED') || 'REGULAR'
 
   const [classes, setClasses] = useState<AssignedClass[]>([])
   const [selectedClassId, setSelectedClassId] = useState<string>(classIdParam || '')
@@ -164,6 +165,8 @@ export default function TakeAttendancePage() {
       session_date: dateStr,
       start_time: timeStr,
       status: 'OPEN',
+      session_type: sessionTypeParam,
+      remarks: sessionTypeParam !== 'REGULAR' ? `Conducted as ${sessionTypeParam} class` : undefined,
       sync_status: 'LOCAL_ONLY',
       created_at: now.toISOString(),
     }
@@ -287,21 +290,28 @@ export default function TakeAttendancePage() {
     }
   }
 
-  // Drop all local data from Teacher App so fresh data can be pushed from desktop
-  const handleDropAllData = async () => {
+  // Cancel current active session with confirmation
+  const handleCancelCurrentSession = async () => {
+    if (!currentSession) return
     if (
-      !confirm(
-        'Drop all local data from Teacher App? All cached students, classes, and attendance records will be wiped clean.'
+      !window.confirm(
+        'Are you sure you want to cancel this in-progress session? All unsaved attendance marks for this session will be discarded, and you can start a new session.'
       )
-    )
+    ) {
       return
-    await clearAllData()
-    setStudents([])
-    setRecords({})
-    setTopics([])
-    setClasses([])
-    setSelectedClassId('')
-    alert('All Teacher App data has been wiped clean! Push master data from Desktop, then tap 🔄 Sync.')
+    }
+
+    try {
+      await db.records.where('session_id').equals(currentSession.session_id).delete()
+      await db.sessions.delete(currentSession.session_id)
+      await db.syncQueue.where('entity_id').equals(currentSession.session_id).delete()
+      setCurrentSession(null)
+      setRecords({})
+      navigate('/schedule')
+    } catch (err) {
+      console.error('Failed to cancel session:', err)
+      alert('Could not cancel session: ' + (err instanceof Error ? err.message : 'Unknown error'))
+    }
   }
 
   // 5. Complete and Lock Attendance Session
@@ -408,7 +418,7 @@ export default function TakeAttendancePage() {
             >
               {classes.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {(c.subject_code || (c as any).subjectCode || 'CLASS')} — {(c.batch_name || (c as any).batchName || 'Batch')}
+                  {(c.subject_code || (c as any).subjectCode || 'CLASS')} — {(c.batch_name || (c as any).batchName || 'Batch')}{c.schedule_time ? ` (${formatTo12Hour(c.schedule_time)})` : ''}
                 </option>
               ))}
             </select>
@@ -418,6 +428,13 @@ export default function TakeAttendancePage() {
             <div className="bg-primary/5 border border-primary/20 rounded-xl p-3.5 space-y-1 text-xs">
               <div className="font-bold text-primary">{selectedClass.subject_name || (selectedClass as any).subjectName}</div>
               <div className="text-muted-foreground">{selectedClass.program_name || (selectedClass as any).programName}</div>
+              {selectedClass.schedule_time && (
+                <div className="flex items-center gap-1.5 text-primary font-medium pt-0.5">
+                  <Clock className="h-3 w-3" />
+                  <span>{formatTo12Hour(selectedClass.schedule_time)}</span>
+                  {selectedClass.room && <span className="text-muted-foreground">• {selectedClass.room}</span>}
+                </div>
+              )}
               <div className="text-muted-foreground font-medium pt-1">
                 Enrolled Students: <span className="text-foreground font-bold">{students.length}</span>
               </div>
@@ -500,11 +517,35 @@ export default function TakeAttendancePage() {
       {/* Session Top Bar */}
       <div className="bg-card border rounded-2xl p-4 shadow-sm space-y-3">
         <div className="flex items-center justify-between">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            Session Active
-          </span>
-          <span className="text-xs text-muted-foreground font-mono">Started: {currentSession.start_time}</span>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Session Active
+            </span>
+            {currentSession.session_type === 'SUBSTITUTE' && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/10 text-purple-600 border border-purple-500/20">
+                🔄 Substitute Class
+              </span>
+            )}
+            {currentSession.session_type === 'EXTRA' && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-600 border border-blue-500/20">
+                📌 Extra / Make-up
+              </span>
+            )}
+            {currentSession.session_type === 'RESCHEDULED' && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-600 border border-amber-500/20">
+                📅 Rescheduled
+              </span>
+            )}
+            <span className="text-xs text-muted-foreground font-mono">Started: {formatTo12Hour(currentSession.start_time)}</span>
+          </div>
+          <button
+            onClick={handleCancelCurrentSession}
+            className="px-2.5 py-1 rounded-lg text-xs font-semibold text-rose-600 hover:bg-rose-500/10 border border-rose-300 dark:border-rose-800 transition-colors"
+            title="Cancel this session and start fresh"
+          >
+            Cancel Session
+          </button>
         </div>
 
         {/* Counter Pills */}
@@ -562,39 +603,45 @@ export default function TakeAttendancePage() {
         {/* Face Recognition Camera Scanner Trigger */}
         <div className="pt-2 border-t flex items-center gap-2">
           <button
-            onClick={() => setShowScanner((v) => !v)}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold transition-all shadow-sm ${
+            onClick={() => {
+              // Pre-unlock Web Audio on direct user tap
+              try {
+                const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
+                if (AudioCtx) {
+                  const ctx = new AudioCtx()
+                  ctx.resume()
+                }
+              } catch {}
+              setShowScanner((v) => !v)
+            }}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold transition-all shadow-md ${
               showScanner
                 ? 'bg-rose-500 text-white hover:bg-rose-600'
-                : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:opacity-95'
+                : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:opacity-95 shadow-blue-500/25'
             }`}
           >
             <Camera className="h-4 w-4" />
-            <span>{showScanner ? 'Hide Camera Scanner' : '📷 Open Face Scanner'}</span>
+            <span>{showScanner ? 'Close Face Scanner' : '📷 Open Face Scanner (Full Screen)'}</span>
           </button>
           <button
             onClick={handleQuickSyncRoster}
             disabled={syncingRoster}
             title="Pull latest students and face descriptors from cloud"
-            className="p-2.5 rounded-xl border bg-card text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
+            className="p-3 rounded-xl border bg-card text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
           >
             <RefreshCw className={`h-4 w-4 ${syncingRoster ? 'animate-spin text-primary' : ''}`} />
-          </button>
-          <button
-            onClick={handleDropAllData}
-            title="Drop all local data from Teacher App"
-            className="p-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 transition-all flex items-center gap-1.5 text-xs font-semibold"
-          >
-            <Trash2 className="h-4 w-4" />
-            <span className="hidden sm:inline">Drop All Data</span>
           </button>
         </div>
       </div>
 
-      {/* Live Camera Face Scanner */}
+      {/* Live Camera Face Scanner (Full Screen Big View) */}
       {showScanner && (
         <PwaFaceScanner
           students={students}
+          batchName={classes.find((c) => c.id === selectedClassId)?.batch_name}
+          subjectName={classes.find((c) => c.id === selectedClassId)?.subject_name}
+          presentCount={presentCount}
+          totalCount={totalCount}
           alreadyPresentIds={
             new Set(
               Object.values(records)

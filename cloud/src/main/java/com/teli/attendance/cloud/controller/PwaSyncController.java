@@ -21,6 +21,34 @@ public class PwaSyncController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/login")
+    public ResponseEntity<java.util.Map<String, Object>> loginTeacher(@RequestBody java.util.Map<String, String> request) {
+        String username = request.get("username");
+        if (username == null || username.isBlank()) {
+            username = request.get("identifier");
+        }
+        var teacherOpt = syncService.authenticateTeacher(username);
+        if (teacherOpt.isPresent()) {
+            var t = teacherOpt.get();
+            return ResponseEntity.ok(java.util.Map.of(
+                    "success", true,
+                    "teacher", java.util.Map.of(
+                            "id", t.getId(),
+                            "name", t.getName(),
+                            "employee_id", t.getEmployeeId() != null ? t.getEmployeeId() : "",
+                            "username", t.getUsername() != null ? t.getUsername() : "",
+                            "department", t.getDepartment() != null ? t.getDepartment() : "General",
+                            "institution_name", t.getInstitutionName() != null ? t.getInstitutionName() : "Institution",
+                            "institution_id", t.getInstitutionId()
+                    )
+            ));
+        }
+        return ResponseEntity.ok(java.util.Map.of(
+                "success", false,
+                "error", "Teacher account not found for username/ID: " + (username != null ? username : "")
+        ));
+    }
+
     @GetMapping("/pull")
     public ResponseEntity<PwaSyncPullResponse> pullData(
             @RequestParam(defaultValue = "inst-001") String institutionId,

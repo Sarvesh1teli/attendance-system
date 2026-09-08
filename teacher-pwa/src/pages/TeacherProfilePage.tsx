@@ -48,7 +48,11 @@ export default function TeacherProfilePage() {
   }
 
   const handleResetData = async () => {
-    if (!confirm('This will completely wipe all local cached classes, students, and attendance records from this browser. Proceed?')) return
+    if (stats.queue > 0 || pendingSyncCount > 0) {
+      alert('Action Blocked: You have ' + (stats.queue || pendingSyncCount) + ' unsynced attendance session(s) in your local outbox. Please tap "Sync Outbox to Cloud" first to avoid losing attendance data.')
+      return
+    }
+    if (!confirm('This will clear local offline student rosters and class cache from this browser. You will need internet on next login to re-download. Continue?')) return
     await clearAllData()
     navigate('/login')
   }
@@ -117,6 +121,15 @@ export default function TeacherProfilePage() {
       {/* Actions */}
       <div className="space-y-2 pt-2">
         <button
+          onClick={handleSync}
+          disabled={syncing}
+          className="w-full flex items-center justify-center gap-2 text-foreground border bg-card hover:bg-accent py-3 rounded-xl text-xs font-semibold transition-colors disabled:opacity-50"
+        >
+          <RefreshCw className={`h-4 w-4 text-primary ${syncing ? 'animate-spin' : ''}`} />
+          <span>{syncing ? 'Syncing with Cloud...' : 'Refresh Roster & Classes from Cloud'}</span>
+        </button>
+
+        <button
           onClick={handleLogout}
           className="w-full flex items-center justify-center gap-2 text-foreground border bg-card hover:bg-accent py-3 rounded-xl text-xs font-semibold transition-colors"
         >
@@ -124,13 +137,15 @@ export default function TeacherProfilePage() {
           <span>Sign Out of PWA</span>
         </button>
 
-        <button
-          onClick={handleResetData}
-          className="w-full flex items-center justify-center gap-2 text-rose-600 border border-rose-200 bg-rose-50/50 hover:bg-rose-100 py-3 rounded-xl text-xs font-semibold transition-colors"
-        >
-          <HardDrive className="h-4 w-4" />
-          <span>Reset / Wipe All Local Data</span>
-        </button>
+        <div className="pt-2 text-center">
+          <button
+            type="button"
+            onClick={handleResetData}
+            className="text-[11px] text-muted-foreground hover:text-rose-600 transition-colors underline underline-offset-4"
+          >
+            Clear Offline Cache (Troubleshooting)
+          </button>
+        </div>
       </div>
     </div>
   )

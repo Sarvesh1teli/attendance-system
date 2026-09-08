@@ -98,6 +98,9 @@ export class DesktopSyncService {
           SELECT
             ts.slot_id as id,
             ts.faculty_id as facultyId,
+            COALESCE(f.name, 'Dr.Bhavu') as facultyName,
+            COALESCE(f.employee_id, 'FAC001') as employeeId,
+            COALESCE(d.department_name, 'Anatomy') as department,
             ts.batch_id as batchId,
             COALESCE(b.batch_name, 'General Batch') as batchName,
             ts.subject_id as subjectId,
@@ -111,13 +114,17 @@ export class DesktopSyncService {
             ) as academicYearId,
             ts.group_id as groupId,
             (SELECT group_name FROM student_group WHERE student_group_id = ts.group_id LIMIT 1) as groupName,
-            (ts.start_time || ' - ' || ts.end_time) as scheduleTime,
+            ts.day_of_week as dayOfWeek,
+            (ts.start_time || ' - ' || ts.end_time || ' [DOW:' || ts.day_of_week || ']') as scheduleTime,
             ts.room as room
           FROM timetable_slot ts
           LEFT JOIN batch b ON ts.batch_id = b.batch_id
           LEFT JOIN subject s ON ts.subject_id = s.subject_id
           LEFT JOIN course_program p ON b.program_id = p.program_id
+          LEFT JOIN faculty f ON ts.faculty_id = f.faculty_id
+          LEFT JOIN department d ON f.department_id = d.department_id
           WHERE ts.institution_id = ?
+            AND ts.active = 1
         `)
         .all(instId) as any[]
 
@@ -165,11 +172,32 @@ export class DesktopSyncService {
           .all(instId, instId, instId) as any[]
       }
 
+      // 4. Gather faculty / teachers
+      const teachers = this.db
+        .prepare(`
+          SELECT
+            f.faculty_id as id,
+            f.name as name,
+            f.employee_id as employeeId,
+            COALESCE(u.username, lower(replace(f.name, 'Dr.', ''))) as username,
+            COALESCE(d.department_name, 'Anatomy') as department,
+            COALESCE(i.name, 'svhs') as institutionName,
+            f.institution_id as institutionId
+          FROM faculty f
+          LEFT JOIN app_user u ON u.faculty_id = f.faculty_id
+          LEFT JOIN department d ON f.department_id = d.department_id
+          LEFT JOIN institution i ON f.institution_id = i.id
+          WHERE f.institution_id = ?
+            AND f.status = 'ACTIVE'
+        `)
+        .all(instId) as any[]
+
       const payload = {
         institutionId: instId,
         topics,
         students,
         classes,
+        teachers,
       }
 
       const cloudUrl = this.getCloudUrl()

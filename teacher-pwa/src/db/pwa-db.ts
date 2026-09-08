@@ -13,6 +13,9 @@ export interface TeacherProfile {
 export interface AssignedClass {
   id: string
   faculty_id?: string
+  faculty_name?: string
+  employee_id?: string
+  department?: string
   batch_id: string
   batch_name: string
   subject_id: string
@@ -22,6 +25,7 @@ export interface AssignedClass {
   academic_year_id: string
   group_id?: string
   group_name?: string
+  day_of_week?: number
   schedule_time: string
   room?: string
 }
@@ -61,6 +65,8 @@ export interface LocalAttendanceSession {
   status: 'OPEN' | 'COMPLETED' | 'CANCELLED'
   topic_id?: string
   custom_topic?: string
+  session_type?: 'REGULAR' | 'EXTRA' | 'SUBSTITUTE' | 'RESCHEDULED'
+  remarks?: string
   sync_status: 'LOCAL_ONLY' | 'SYNCED' | 'FAILED'
   created_at: string
 }
