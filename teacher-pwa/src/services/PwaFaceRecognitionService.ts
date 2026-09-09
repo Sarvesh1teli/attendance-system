@@ -117,6 +117,20 @@ class PwaFaceRecognitionService {
     }
   }
 
+  async extractDescriptor(video: HTMLVideoElement): Promise<number[] | null> {
+    const detectorOptions = new faceapi.TinyFaceDetectorOptions({
+      inputSize: 224,
+      scoreThreshold: 0.35,
+    })
+    const detection = await faceapi
+      .detectSingleFace(video, detectorOptions)
+      .withFaceLandmarks(true)
+      .withFaceDescriptor()
+
+    if (!detection) return null
+    return Array.from(detection.descriptor)
+  }
+
   reset() {
     this.faceMatcher = null
     this.studentNameMap.clear()

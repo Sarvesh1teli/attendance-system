@@ -6,6 +6,7 @@ import { LoadingSpinner } from './components/ui/LoadingSpinner'
 import { AuthProvider, useAuth } from './context/AuthContext'
 
 const LoginPage = lazy(() => import('./pages/auth/LoginPage'))
+const CustomerRegisterPage = lazy(() => import('./pages/auth/CustomerRegisterPage'))
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
 const InstitutionSetupPage = lazy(() => import('./pages/setup/InstitutionSetupPage'))
 const CourseProgramPage = lazy(() => import('./pages/academic/CourseProgramPage'))
@@ -28,8 +29,15 @@ const ReportsPage = lazy(() => import('./pages/reports/ReportsPage'))
 const RecognitionSessionPage = lazy(() => import('./pages/attendance/RecognitionSessionPage'))
 const NotificationsPage = lazy(() => import('./pages/notifications/NotificationsPage'))
 const TimetablePage = lazy(() => import('./pages/timetable/TimetablePage'))
+const SuperAdminDashboardPage = lazy(() => import('./pages/superadmin/SuperAdminDashboardPage'))
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
+function ProtectedRoute({
+  children,
+  requireSuperAdmin,
+}: {
+  children: React.ReactNode
+  requireSuperAdmin?: boolean
+}) {
   const { user, hasInstitution, loading } = useAuth()
   const location = useLocation()
 
@@ -37,12 +45,22 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <LoadingSpinner fullScreen />
   }
 
-  if (hasInstitution === false) {
-    return <Navigate to="/setup" replace />
-  }
-
   if (!user) {
     return <Navigate to="/login" state={{ from: location }} replace />
+  }
+
+  // Super Admin redirect: ensure Super Admin goes to /superadmin
+  if (user.role === 'SUPER_ADMIN' && !requireSuperAdmin) {
+    return <Navigate to="/superadmin" replace />
+  }
+
+  // Regular college admin trying to access Super Admin dashboard
+  if (user.role !== 'SUPER_ADMIN' && requireSuperAdmin) {
+    return <Navigate to="/dashboard" replace />
+  }
+
+  if (hasInstitution === false && user.role !== 'SUPER_ADMIN') {
+    return <Navigate to="/setup" replace />
   }
 
   return <>{children}</>
@@ -55,6 +73,18 @@ export default function App() {
         <Routes>
           {/* Public Auth Routes */}
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<CustomerRegisterPage />} />
+          <Route path="/customer/register" element={<CustomerRegisterPage />} />
+
+          {/* Super Admin Dashboard Route */}
+          <Route
+            path="/superadmin"
+            element={
+              <ProtectedRoute requireSuperAdmin>
+                <SuperAdminDashboardPage />
+              </ProtectedRoute>
+            }
+          />
 
           {/* Initial Setup Route */}
           <Route path="/setup" element={<SetupLayout />}>

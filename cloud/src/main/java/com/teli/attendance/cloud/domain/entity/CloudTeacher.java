@@ -30,6 +30,15 @@ public class CloudTeacher {
     @Column(length = 64)
     private String username;
 
+    @Column(length = 20)
+    private String pin;
+
+    @Column(length = 255)
+    private String passwordHash;
+
+    @Column(columnDefinition = "TEXT")
+    private String faceDescriptor;
+
     private String department;
 
     private String institutionName;

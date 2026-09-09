@@ -5,45 +5,35 @@ import lombok.*;
 import java.time.Instant;
 
 @Entity
-@Table(name = "cloud_tenant_institution")
+@Table(name = "cloud_app_user")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class TenantInstitution {
+public class CloudAppUser {
     @Id
     @Column(length = 64)
     private String id;
 
-    @Column(nullable = false)
-    private String name;
+    @Column(length = 64, nullable = false)
+    private String institutionId;
 
-    @Column(length = 128)
-    private String licenseKey;
+    @Column(length = 64, nullable = false)
+    private String username;
 
-    @Column(length = 128, unique = true, nullable = false)
-    private String apiKey;
+    @Column(length = 255, nullable = false)
+    private String passwordHash;
 
-    @Column(length = 64)
-    private String phone;
-
-    @Column(length = 128)
-    private String email;
-
-    @Column(length = 128)
-    private String adminName;
-
-    @Column(length = 128)
-    private String adminEmail;
-
-    @Column(length = 64)
+    @Column(length = 32, nullable = false)
     @Builder.Default
-    private String plan = "ANNUAL_ENTERPRISE";
+    private String role = "ADMIN";
 
     @Column(length = 32, nullable = false)
     @Builder.Default
     private String status = "ACTIVE";
+
+    private Instant lastLogin;
 
     @Column(nullable = false)
     @Builder.Default

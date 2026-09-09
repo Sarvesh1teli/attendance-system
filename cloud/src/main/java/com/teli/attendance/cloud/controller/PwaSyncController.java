@@ -51,8 +51,11 @@ public class PwaSyncController {
 
     @GetMapping("/pull")
     public ResponseEntity<PwaSyncPullResponse> pullData(
-            @RequestParam(defaultValue = "inst-001") String institutionId,
+            @RequestParam(required = false, defaultValue = "") String institutionId,
             @RequestParam(required = false) String facultyId) {
+        if (institutionId == null || institutionId.isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
         PwaSyncPullResponse response = syncService.getPwaPullData(institutionId, facultyId);
         return ResponseEntity.ok(response);
     }

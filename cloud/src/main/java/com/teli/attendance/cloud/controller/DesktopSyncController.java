@@ -23,9 +23,12 @@ public class DesktopSyncController {
 
     @GetMapping("/pull")
     public ResponseEntity<DesktopSyncPullResponse> pullCompletedSessions(
-            @RequestParam(defaultValue = "inst-001") String institutionId,
+            @RequestParam(required = false, defaultValue = "") String institutionId,
             @RequestParam(required = false) String sessionDate,
             @RequestParam(required = false) String since) {
+        if (institutionId == null || institutionId.isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
         DesktopSyncPullResponse response = syncService.getDesktopPullData(institutionId, sessionDate, since);
         return ResponseEntity.ok(response);
     }

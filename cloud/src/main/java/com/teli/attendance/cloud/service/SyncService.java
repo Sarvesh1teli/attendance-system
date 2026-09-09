@@ -26,6 +26,7 @@ public class SyncService {
     private final CloudAttendanceRecordRepository recordRepo;
     private final CloudSyncConflictRepository conflictRepo;
     private final CloudOutboxEventRepository outboxRepo;
+    private final CloudTenantEntityRepository tenantEntityRepo;
     private final ObjectMapper objectMapper;
 
     /**
@@ -52,6 +53,7 @@ public class SyncService {
     public void resetAllData(String institutionId) {
         log.info("Resetting all cloud sync data for institutionId: {}", institutionId);
         if (institutionId != null && !institutionId.isBlank()) {
+            tenantEntityRepo.deleteAll(tenantEntityRepo.findByInstitutionId(institutionId));
             teacherRepo.deleteAll(teacherRepo.findByInstitutionId(institutionId));
             studentRepo.deleteAll(studentRepo.findByInstitutionId(institutionId));
             classRepo.deleteAll(classRepo.findByInstitutionId(institutionId));
@@ -59,6 +61,8 @@ public class SyncService {
             sessionRepo.deleteAll(sessionRepo.findByInstitutionId(institutionId));
             recordRepo.deleteAll(recordRepo.findByInstitutionId(institutionId));
         } else {
+            tenantEntityRepo.deleteAll();
+            teacherRepo.deleteAll();
             studentRepo.deleteAll();
             classRepo.deleteAll();
             topicRepo.deleteAll();

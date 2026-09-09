@@ -98,15 +98,15 @@ export class DesktopSyncService {
           SELECT
             ts.slot_id as id,
             ts.faculty_id as facultyId,
-            COALESCE(f.name, 'Dr.Bhavu') as facultyName,
-            COALESCE(f.employee_id, 'FAC001') as employeeId,
-            COALESCE(d.department_name, 'Anatomy') as department,
+            COALESCE(f.name, '') as facultyName,
+            COALESCE(f.employee_id, '') as employeeId,
+            COALESCE(d.department_name, '') as department,
             ts.batch_id as batchId,
-            COALESCE(b.batch_name, 'General Batch') as batchName,
+            COALESCE(b.batch_name, '') as batchName,
             ts.subject_id as subjectId,
-            COALESCE(s.subject_name, 'General Subject') as subjectName,
-            COALESCE(s.subject_code, 'SUB') as subjectCode,
-            COALESCE(p.program_name, 'MBBS') as programName,
+            COALESCE(s.subject_name, '') as subjectName,
+            COALESCE(s.subject_code, '') as subjectCode,
+            COALESCE(p.program_name, '') as programName,
             COALESCE(
               (SELECT academic_year_id FROM academic_year WHERE institution_id = ts.institution_id AND is_current = 1 LIMIT 1),
               (SELECT academic_year_id FROM academic_year WHERE institution_id = ts.institution_id LIMIT 1),
@@ -180,13 +180,15 @@ export class DesktopSyncService {
             f.name as name,
             f.employee_id as employeeId,
             COALESCE(u.username, lower(replace(f.name, 'Dr.', ''))) as username,
-            COALESCE(d.department_name, 'Anatomy') as department,
-            COALESCE(i.name, 'svhs') as institutionName,
-            f.institution_id as institutionId
+            COALESCE(d.department_name, '') as department,
+            COALESCE(i.name, i.id, '') as institutionName,
+            f.institution_id as institutionId,
+            fe.face_descriptor as faceDescriptor
           FROM faculty f
           LEFT JOIN app_user u ON u.faculty_id = f.faculty_id
           LEFT JOIN department d ON f.department_id = d.department_id
           LEFT JOIN institution i ON f.institution_id = i.id
+          LEFT JOIN face_enrollment fe ON fe.entity_id = f.faculty_id AND fe.status = 'ENROLLED'
           WHERE f.institution_id = ?
             AND f.status = 'ACTIVE'
         `)

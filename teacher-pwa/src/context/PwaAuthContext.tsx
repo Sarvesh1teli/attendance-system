@@ -7,7 +7,8 @@ interface PwaAuthContextType {
   isOnline: boolean
   pendingSyncCount: number
   loading: boolean
-  login: (username: string, password?: string) => Promise<{ success: boolean; error?: string }>
+  login: (username: string, password?: string, institutionId?: string) => Promise<{ success: boolean; error?: string }>
+  faceLogin: (faceDescriptor: number[], institutionId?: string) => Promise<{ success: boolean; teacherName?: string; error?: string }>
   logout: () => Promise<void>
   clearAllData: () => Promise<void>
   triggerSync: () => Promise<{ synced: number; error?: string }>
@@ -32,7 +33,7 @@ export function PwaAuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const PWA_STORAGE_EPOCH_KEY = 'pwa_data_reset_epoch'
-  const CURRENT_STORAGE_EPOCH = 'epoch_2026_09_08_fresh_start_v1'
+  const CURRENT_STORAGE_EPOCH = 'epoch_2026_09_09_hard_purge_v4'
 
   useEffect(() => {
     async function init() {
@@ -43,19 +44,19 @@ export function PwaAuthProvider({ children }: { children: React.ReactNode }) {
           localStorage.clear()
           sessionStorage.clear()
           localStorage.setItem(PWA_STORAGE_EPOCH_KEY, CURRENT_STORAGE_EPOCH)
+          setTeacher(null)
+          return
         }
 
         await seedInitialDataIfEmpty()
         const saved = await db.teacherProfile.toCollection().first()
         if (saved) {
-          if (saved.name.toLowerCase() === 'bhavu' || saved.name === saved.username || saved.department === 'Academic') {
-            saved.name = 'Dr.Bhavu'
-            saved.department = 'Anatomy'
-            saved.employee_id = 'FAC001'
-            saved.institution_name = 'svhs'
-            await db.teacherProfile.put(saved)
+          if (saved.name?.toLowerCase().includes('bhavu') || saved.username?.toLowerCase().includes('bhavu') || saved.institution_name === 'svhs') {
+            await clearAllPwaData()
+            setTeacher(null)
+          } else {
+            setTeacher(saved)
           }
-          setTeacher(saved)
         }
         await refreshSyncCount()
       } catch (err) {
@@ -79,22 +80,102 @@ export function PwaAuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  const login = async (username: string, password?: string) => {
+  const login = async (username: string, password?: string, institutionId?: string) => {
     try {
       if (!username || !username.trim()) {
         return { success: false, error: 'Please enter a valid Teacher ID or Username' }
       }
       const trimmed = username.trim()
       const lower = trimmed.toLowerCase()
+      const cleanInst = (institutionId?.trim() || localStorage.getItem('pwa_institute_id') || '').trim()
+      if (!cleanInst) {
+        return { success: false, error: 'Please enter your Institution Code' }
+      }
+      localStorage.setItem('pwa_institute_id', cleanInst)
 
       // 1. Try remote Cloud Login if online
       if (navigator.onLine) {
         try {
-          const apiBase = (import.meta as any).env?.VITE_CLOUD_API_URL ?? (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:8086' : '')
-          const resp = await fetch(`${apiBase}/api/v1/sync/pwa/login`, {
+          const apiBase =
+            (import.meta as any).env?.VITE_CLOUD_API_URL ??
+            (typeof window !== 'undefined' && window.location.hostname === 'localhost'
+              ? 'http://localhost:8086'
+              : '')
+          const resp = await fetch(`${apiBase}/api/v1/auth/teacher/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: trimmed, password }),
+            body: JSON.stringify({ institutionId: cleanInst, username: trimmed, password }),
+          })
+          if (resp.ok) {
+            const data = await resp.json()
+            if (data.success && data.teacher) {
+              const remoteProfile: TeacherProfile = {
+                id: data.teacher.id,
+                employee_id: data.teacher.employee_id || trimmed,
+                name: data.teacher.name || trimmed,
+                username: data.teacher.username || trimmed,
+                department: data.teacher.department || 'General',
+                institution_name: data.teacher.institution_name || cleanInst,
+                institution_id: data.teacher.institution_id || cleanInst,
+              }
+              await db.teacherProfile.put(remoteProfile)
+              setTeacher(remoteProfile)
+              triggerSync().catch(console.error)
+              return { success: true }
+            } else if (data.error) {
+              return { success: false, error: data.error }
+            }
+          }
+        } catch (netErr) {
+          console.warn('Remote login failed, checking local profiles:', netErr)
+        }
+      }
+
+      // 2. Check local Dexie teacher profiles for this tenant
+      const allProfiles = await db.teacherProfile.toArray()
+      const found = allProfiles.find(
+        (p) =>
+          (p.institution_name?.toLowerCase() === cleanInst.toLowerCase() || p.institution_id?.toLowerCase() === cleanInst.toLowerCase()) &&
+          (p.username.toLowerCase() === lower || p.employee_id.toLowerCase() === lower)
+      )
+      if (found) {
+        setTeacher(found)
+        return { success: true }
+      }
+
+      return { success: false, error: 'Account not found in institution ' + cleanInst + '. Please verify your username and password.' }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Login failed' }
+    }
+  }
+
+
+  const faceLogin = async (
+    faceDescriptor: number[],
+    institutionId?: string
+  ): Promise<{ success: boolean; teacherName?: string; error?: string }> => {
+    try {
+      if (!faceDescriptor || faceDescriptor.length < 128) {
+        return { success: false, error: 'Invalid face features detected. Please try again.' }
+      }
+      const cleanInst = institutionId?.trim() || localStorage.getItem('pwa_institute_id') || 'svhs'
+      localStorage.setItem('pwa_institute_id', cleanInst)
+
+      const apiBase =
+        (import.meta as any).env?.VITE_CLOUD_API_URL ??
+        (typeof window !== 'undefined' && window.location.hostname === 'localhost'
+          ? 'http://localhost:8086'
+          : '')
+
+      if (navigator.onLine) {
+        try {
+          const resp = await fetch(`${apiBase}/api/v1/auth/teacher/face-login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              institutionId: cleanInst,
+              faceDescriptor: Array.from(faceDescriptor),
+            }),
           })
           if (resp.ok) {
             const data = await resp.json()
@@ -102,72 +183,38 @@ export function PwaAuthProvider({ children }: { children: React.ReactNode }) {
               const remoteProfile: TeacherProfile = {
                 id: data.teacher.id,
                 employee_id: data.teacher.employee_id || 'FAC001',
-                name: data.teacher.name || 'Dr.Bhavu',
-                username: data.teacher.username || trimmed,
-                department: data.teacher.department || 'Anatomy',
-                institution_name: data.teacher.institution_name || 'svhs',
-                institution_id: data.teacher.institution_id || '392112ee-d8da-40ce-a563-8a835b45a1bd',
+                name: data.teacher.name || 'Faculty Member',
+                username: data.teacher.username || data.teacher.name,
+                department: data.teacher.department || 'General',
+                institution_name: data.teacher.institution_name || cleanInst,
+                institution_id: data.teacher.institution_id || cleanInst,
               }
               await db.teacherProfile.put(remoteProfile)
               setTeacher(remoteProfile)
               triggerSync().catch(console.error)
-              return { success: true }
+              return { success: true, teacherName: remoteProfile.name }
+            } else {
+              return { success: false, error: data.error || 'Face not recognized.' }
             }
           }
         } catch (netErr) {
-          console.warn('Remote login failed, falling back to local/cached auth:', netErr)
+          console.warn('Remote face login failed, checking local profiles:', netErr)
         }
       }
 
-      // 2. Check local Dexie teacher profiles
-      const allProfiles = await db.teacherProfile.toArray()
-      const found = allProfiles.find(
-        (p) =>
-          p.username.toLowerCase() === lower ||
-          p.employee_id.toLowerCase() === lower ||
-          p.name.toLowerCase() === lower ||
-          p.id === trimmed
-      )
-      if (found) {
-        if (found.name.toLowerCase() === 'bhavu' || found.name === found.username || found.department === 'Academic') {
-          found.name = 'Dr.Bhavu'
-          found.department = 'Anatomy'
-          found.employee_id = 'FAC001'
-          found.institution_name = 'svhs'
-          await db.teacherProfile.put(found)
-        }
-        setTeacher(found)
-        return { success: true }
+      // Offline fallback: Check if existing saved teacher exists
+      const saved = await db.teacherProfile.toCollection().first()
+      if (saved) {
+        setTeacher(saved)
+        return { success: true, teacherName: saved.name }
       }
 
-      // 3. Look in local classes for matching faculty details
-      const allClasses = await db.classes.toArray()
-      const matchingClass = allClasses.find(
-        (c: any) =>
-          c.faculty_id === trimmed ||
-          c.faculty_name?.toLowerCase().includes(lower) ||
-          c.department?.toLowerCase().includes(lower) ||
-          lower === 'bhavu'
-      )
-
-      const facultyName = matchingClass?.faculty_name || (lower === 'bhavu' ? 'Dr.Bhavu' : trimmed)
-      const facultyDept = matchingClass?.department || 'Anatomy'
-      const facultyEmpId = matchingClass?.employee_id || 'FAC001'
-
-      const newTeacher: TeacherProfile = {
-        id: matchingClass?.faculty_id || '6ba96219-b2f1-45a5-88f7-8ec2ce55b135',
-        employee_id: facultyEmpId,
-        name: facultyName,
-        username: trimmed,
-        department: facultyDept,
-        institution_name: 'svhs',
-        institution_id: '392112ee-d8da-40ce-a563-8a835b45a1bd',
+      return {
+        success: false,
+        error: 'Face recognition login requires cloud connection or pre-enrolled local profile.',
       }
-      await db.teacherProfile.put(newTeacher)
-      setTeacher(newTeacher)
-      return { success: true }
     } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : 'Login failed' }
+      return { success: false, error: err instanceof Error ? err.message : 'Face login error' }
     }
   }
 
@@ -308,9 +355,9 @@ export function PwaAuthProvider({ children }: { children: React.ReactNode }) {
               return {
                 id: c.id,
                 faculty_id: c.faculty_id || c.facultyId || '',
-                faculty_name: c.faculty_name || c.facultyName || 'Dr.Bhavu',
-                employee_id: c.employee_id || c.employeeId || 'FAC001',
-                department: c.department || 'Anatomy',
+                faculty_name: c.faculty_name || c.facultyName || '',
+                employee_id: c.employee_id || c.employeeId || '',
+                department: c.department || '',
                 batch_id: c.batch_id || c.batchId || '',
                 batch_name: c.batch_name || c.batchName || '',
                 subject_id: c.subject_id || c.subjectId || '',
@@ -330,48 +377,25 @@ export function PwaAuthProvider({ children }: { children: React.ReactNode }) {
               await db.classes.bulkDelete(demoClasses.map(c => c.id))
             }
             await db.classes.bulkPut(mappedClasses)
-
-            // Update teacherProfile with real faculty name, department, employee_id
-            const matchedFaculty = mappedClasses.find((c: any) => c.faculty_id || c.faculty_name)
-            if (teacher) {
-              let updated = false
-              if (matchedFaculty?.faculty_id && (teacher.id === 'fac-001' || !teacher.id)) {
-                teacher.id = matchedFaculty.faculty_id
-                updated = true
-              }
-              if (teacher.name.toLowerCase() === 'bhavu' || teacher.name === teacher.username) {
-                teacher.name = matchedFaculty?.faculty_name || 'Dr.Bhavu'
-                updated = true
-              }
-              if (teacher.department === 'Academic' || !teacher.department) {
-                teacher.department = matchedFaculty?.department || 'Anatomy'
-                updated = true
-              }
-              if (updated) {
-                await db.teacherProfile.put(teacher)
-                setTeacher({ ...teacher })
-              }
-            }
           }
 
-          if (pullData.teachers && pullData.teachers.length > 0) {
+          if (pullData.teachers && pullData.teachers.length > 0 && teacher) {
             const matchedTeacher = pullData.teachers.find((t: any) =>
-              (teacher?.username && t.username?.toLowerCase() === teacher.username.toLowerCase()) ||
-              (teacher?.employee_id && t.employee_id?.toLowerCase() === teacher.employee_id.toLowerCase()) ||
-              (teacher?.id && t.id === teacher.id) ||
-              t.username?.toLowerCase() === 'bhavu' ||
-              t.name?.toLowerCase().includes('bhavu')
+              (teacher.username && t.username?.toLowerCase() === teacher.username.toLowerCase()) ||
+              (teacher.employee_id && t.employee_id?.toLowerCase() === teacher.employee_id.toLowerCase()) ||
+              (teacher.id && t.id === teacher.id)
             )
-            if (matchedTeacher && teacher) {
+            if (matchedTeacher) {
               teacher.id = matchedTeacher.id || teacher.id
-              teacher.name = matchedTeacher.name || 'Dr.Bhavu'
-              teacher.department = matchedTeacher.department || 'Anatomy'
+              teacher.name = matchedTeacher.name || teacher.name
+              teacher.department = matchedTeacher.department || teacher.department
               teacher.employee_id = matchedTeacher.employee_id || matchedTeacher.employeeId || teacher.employee_id
-              teacher.institution_name = matchedTeacher.institution_name || matchedTeacher.institutionName || 'svhs'
+              teacher.institution_name = matchedTeacher.institution_name || matchedTeacher.institutionName || teacher.institution_name
               await db.teacherProfile.put(teacher)
               setTeacher({ ...teacher })
             }
           }
+
           if (pullData.students && pullData.students.length > 0) {
             const mappedStudents = pullData.students.map((s: any) => {
               let parsedDesc: number[] | undefined = undefined
@@ -422,6 +446,7 @@ export function PwaAuthProvider({ children }: { children: React.ReactNode }) {
         pendingSyncCount,
         loading,
         login,
+        faceLogin,
         logout,
         clearAllData,
         triggerSync,

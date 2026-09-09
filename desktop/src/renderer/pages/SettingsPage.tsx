@@ -46,9 +46,9 @@ export default function SettingsPage() {
 
   useEffect(() => {
     Promise.all([
-      window.api.institution.get(),
-      window.api.config.get('cloud_sync_url'),
-      window.api.backup.getAccount().catch(() => null),
+      window.api?.institution?.get?.() ?? Promise.resolve(null),
+      window.api?.config?.get?.('cloud_sync_url') ?? Promise.resolve(null),
+      window.api?.backup?.getAccount ? window.api.backup.getAccount().catch(() => null) : Promise.resolve(null),
     ]).then(([inst, url, acc]) => {
       if (inst) {
         setInstitution(inst)
@@ -509,11 +509,12 @@ function GoogleDriveBackupSection({ onAccountChange }: { onAccountChange?: (conn
 
   const loadData = async () => {
     try {
+      if (!window.api?.backup) return
       const [cfg, acc, sett, last] = await Promise.all([
-        window.api.backup.getOAuthConfig(),
-        window.api.backup.getAccount(),
-        window.api.backup.getSettings(),
-        window.api.backup.getLastBackup(),
+        window.api.backup.getOAuthConfig?.() ?? Promise.resolve({ configured: false, clientId: '' }),
+        window.api.backup.getAccount?.() ?? Promise.resolve({ connected: false }),
+        window.api.backup.getSettings?.() ?? Promise.resolve({ schedule: 'DAILY' }),
+        window.api.backup.getLastBackup?.() ?? Promise.resolve(null),
       ])
       setOauthConfig(cfg)
       setClientIdInput(cfg.clientId)

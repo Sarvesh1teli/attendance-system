@@ -1,13 +1,15 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { GraduationCap, Lock, User, AlertCircle, Eye, EyeOff } from 'lucide-react'
+import { GraduationCap, Lock, User, Building2, AlertCircle, Eye, EyeOff } from 'lucide-react'
 
 export default function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const { login } = useAuth()
 
+  const [roleMode, setRoleMode] = useState<'COLLEGE' | 'SUPER_ADMIN'>('COLLEGE')
+  const [institutionId, setInstitutionId] = useState(() => localStorage.getItem('saas_institute_id') || '')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -22,14 +24,25 @@ export default function LoginPage() {
       setError('Please enter both username and password')
       return
     }
+    if (roleMode === 'COLLEGE' && !institutionId.trim()) {
+      setError('Please enter your College / Institution ID')
+      return
+    }
 
     setLoading(true)
     setError(null)
 
     try {
-      const res = await login(username.trim(), password)
+      const activeInst = roleMode === 'SUPER_ADMIN' ? 'PLATFORM' : institutionId.trim()
+      const res = await login(username.trim(), password, activeInst)
       if (res.success) {
-        navigate(from, { replace: true })
+        const storedUser = localStorage.getItem('saas_admin_user')
+        const parsed = storedUser ? JSON.parse(storedUser) : null
+        if (parsed?.role === 'SUPER_ADMIN' || username.trim().toLowerCase() === 'superadmin') {
+          navigate('/superadmin', { replace: true })
+        } else {
+          navigate(from, { replace: true })
+        }
       } else {
         setError(res.error || 'Invalid credentials')
       }
@@ -52,7 +65,44 @@ export default function LoginPage() {
         </div>
 
         <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/10 p-8 shadow-2xl">
-          <h2 className="text-xl font-semibold text-white mb-6">Sign In to Continue</h2>
+          {/* Segmented Control Tabs */}
+          <div className="grid grid-cols-2 p-1 bg-slate-900/80 rounded-xl border border-slate-700/80 mb-6">
+            <button
+              type="button"
+              onClick={() => {
+                setRoleMode('COLLEGE')
+                setError(null)
+              }}
+              className={`py-2 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-2 ${
+                roleMode === 'COLLEGE'
+                  ? 'bg-blue-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Building2 className="w-3.5 h-3.5" />
+              College Admin
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setRoleMode('SUPER_ADMIN')
+                setUsername((prev) => prev || 'superadmin')
+                setError(null)
+              }}
+              className={`py-2 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-2 ${
+                roleMode === 'SUPER_ADMIN'
+                  ? 'bg-indigo-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Lock className="w-3.5 h-3.5" />
+              Super Admin
+            </button>
+          </div>
+
+          <h2 className="text-xl font-semibold text-white mb-6">
+            {roleMode === 'SUPER_ADMIN' ? 'Platform Super Admin Portal' : 'College Admin Sign In'}
+          </h2>
 
           {error && (
             <div className="mb-6 flex items-center gap-3 bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-lg text-sm">
@@ -61,7 +111,28 @@ export default function LoginPage() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {roleMode === 'COLLEGE' && (
+              <div>
+                <label className="block text-xs font-medium text-slate-300 uppercase tracking-wider mb-2">
+                  Institute / College Code
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <Building2 className="h-4 w-4" />
+                  </div>
+                  <input
+                    type="text"
+                    required
+                    value={institutionId}
+                    onChange={(e) => setInstitutionId(e.target.value)}
+                    placeholder="e.g. svhs"
+                    className="w-full bg-slate-900/60 border border-slate-700 text-white rounded-lg pl-10 pr-4 py-2.5 text-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                  />
+                </div>
+              </div>
+            )}
+
             <div>
               <label className="block text-xs font-medium text-slate-300 uppercase tracking-wider mb-2">
                 Username
@@ -72,7 +143,6 @@ export default function LoginPage() {
                 </div>
                 <input
                   type="text"
-                  autoFocus
                   required
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}

@@ -5,7 +5,7 @@ interface AuthContextType {
   user: SessionUser | null
   hasInstitution: boolean | null
   loading: boolean
-  login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>
+  login: (username: string, password: string, institutionId?: string) => Promise<{ success: boolean; error?: string }>
   logout: () => Promise<void>
   refreshUser: () => Promise<void>
   checkInstitution: () => Promise<boolean>
@@ -47,8 +47,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refreshUser()
   }, [])
 
-  const login = async (username: string, password: string) => {
+  const login = async (username: string, password: string, institutionId?: string) => {
     try {
+      if (institutionId) {
+        localStorage.setItem('saas_institute_id', institutionId.trim())
+      }
       const result = await window.api.auth.login(username, password)
       if (result.success) {
         await refreshUser()

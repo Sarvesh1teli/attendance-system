@@ -155,9 +155,10 @@ export async function seedInitialDataIfEmpty(): Promise<void> {
     await db.topics.bulkDelete(demoTopics.map(t => t.id))
   }
 
-  const demoTeachers = await db.teacherProfile.filter(t => t.id === 'fac-001' || t.username === 'sarah.jenkins').toArray()
+  const demoTeachers = await db.teacherProfile.filter(t => t.id === 'fac-001' || t.username === 'sarah.jenkins' || t.name.toLowerCase().includes('bhavu') || t.username.toLowerCase().includes('bhavu')).toArray()
   if (demoTeachers.length > 0) {
     await db.teacherProfile.bulkDelete(demoTeachers.map(t => t.id))
   }
 }
+
 

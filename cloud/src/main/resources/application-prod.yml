@@ -16,7 +16,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: validate        # NEVER use create/update in production
+      ddl-auto: update        # Automatically creates/updates tables & columns on startup
     show-sql: false
     properties:
       hibernate:
