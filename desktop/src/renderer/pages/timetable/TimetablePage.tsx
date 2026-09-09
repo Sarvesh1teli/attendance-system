@@ -174,6 +174,24 @@ export default function TimetablePage() {
     return map
   }, [faculties])
 
+  const subjectMap = useMemo(() => {
+    const map = new Map<string, Subject>()
+    subjects.forEach((s) => map.set(s.subject_id, s))
+    return map
+  }, [subjects])
+
+  const batchMap = useMemo(() => {
+    const map = new Map<string, Batch>()
+    batches.forEach((b) => map.set(b.batch_id, b))
+    return map
+  }, [batches])
+
+  const groupMap = useMemo(() => {
+    const map = new Map<string, StudentGroup>()
+    groups.forEach((g) => map.set(g.student_group_id, g))
+    return map
+  }, [groups])
+
   const availableFaculties = useMemo(() => {
     if (!form.department_id) return faculties
     return faculties.filter((f) => f.department_id === form.department_id)
@@ -266,17 +284,28 @@ export default function TimetablePage() {
 
     setSaving(true)
     try {
-      const input: CreateTimetableSlotInput = {
+      const subj = subjects.find((s) => s.subject_id === form.subject_id)
+      const batch = batches.find((b) => b.batch_id === form.batch_id)
+      const fac = faculties.find((f) => f.faculty_id === form.faculty_id)
+      const grp = groups.find((g) => g.student_group_id === form.group_id)
+
+      const input: any = {
         subject_id: form.subject_id,
+        subject_name: subj?.subject_name,
+        subject_code: subj?.subject_code,
         batch_id: form.batch_id,
+        batch_name: batch?.batch_name,
         group_id: form.group_id || undefined,
+        group_name: grp?.group_name,
         faculty_id: form.faculty_id || undefined,
+        faculty_name: fac?.name,
         room: form.room || undefined,
         day_of_week: form.day_of_week,
         start_time: form.start_time,
         end_time: form.end_time,
         effective_from: form.effective_from || undefined,
         effective_until: form.effective_until || undefined,
+        active: editing ? (editing.active !== false) : true,
       }
       if (editing) await window.api.timetable.update(editing.slot_id, input)
       else await window.api.timetable.create(input)
@@ -292,7 +321,7 @@ export default function TimetablePage() {
   const handleDelete = async (slot: TimetableSlot) => {
     if (
       !confirm(
-        `Delete slot: ${slot.subject_name} on ${DAYS[slot.day_of_week]} (${format12Hour(
+        `Delete slot: ${slot.subject_name || 'Class'} on ${DAYS[slot.day_of_week]} (${format12Hour(
           slot.start_time
         )} – ${format12Hour(slot.end_time)})?`
       )
@@ -303,7 +332,8 @@ export default function TimetablePage() {
   }
 
   const handleToggleActive = async (slot: TimetableSlot) => {
-    await window.api.timetable.update(slot.slot_id, { active: !slot.active })
+    const nextActive = slot.active === false ? true : false
+    await window.api.timetable.update(slot.slot_id, { active: nextActive })
     await load()
   }
 
@@ -318,10 +348,29 @@ export default function TimetablePage() {
     }
   }
 
+  const enrichedSlots = useMemo(() => {
+    return slots.map((slot) => {
+      const subj = subjectMap.get(slot.subject_id || '') || subjects.find((s) => s.subject_id === slot.subject_id)
+      const batch = batchMap.get(slot.batch_id || '') || batches.find((b) => b.batch_id === slot.batch_id)
+      const fac = facultyMap.get(slot.faculty_id || '') || faculties.find((f) => f.faculty_id === slot.faculty_id)
+      const grp = groupMap.get(slot.group_id || '') || groups.find((g) => g.student_group_id === slot.group_id)
+
+      return {
+        ...slot,
+        active: slot.active !== false,
+        subject_name: slot.subject_name || subj?.subject_name || '—',
+        subject_code: slot.subject_code || subj?.subject_code || '',
+        batch_name: slot.batch_name || batch?.batch_name || '—',
+        faculty_name: slot.faculty_name || fac?.name || undefined,
+        group_name: slot.group_name || grp?.group_name || undefined,
+      }
+    })
+  }, [slots, subjectMap, batchMap, facultyMap, groupMap, subjects, batches, faculties, groups])
+
   const filteredSlots = useMemo(() => {
-    if (!filterBatchId) return slots
-    return slots.filter((s) => s.batch_id === filterBatchId)
-  }, [slots, filterBatchId])
+    if (!filterBatchId) return enrichedSlots
+    return enrichedSlots.filter((s) => s.batch_id === filterBatchId)
+  }, [enrichedSlots, filterBatchId])
 
   const slotsByDay = useMemo(() => {
     return WEEK_DAYS.map((dow) => ({
@@ -492,34 +541,36 @@ export default function TimetablePage() {
       {generateResult && (
         <div
           className={`rounded-lg border p-4 flex items-start gap-3 ${
-            generateResult.created > 0 ? 'bg-green-50 border-green-200' : 'bg-muted border-border'
+            (generateResult.created || 0) > 0 ? 'bg-green-50 border-green-200' : 'bg-muted border-border'
           }`}
         >
           <CheckCircle
             className={`h-5 w-5 mt-0.5 flex-shrink-0 ${
-              generateResult.created > 0 ? 'text-green-600' : 'text-muted-foreground'
+              (generateResult.created || 0) > 0 ? 'text-green-600' : 'text-muted-foreground'
             }`}
           />
           <div className="flex-1">
             <p className="font-semibold text-sm">
-              {generateResult.created} session{generateResult.created !== 1 ? 's' : ''} created ·{' '}
-              {generateResult.skipped} skipped (already exist)
+              {generateResult.created || 0} session{generateResult.created !== 1 ? 's' : ''} created ·{' '}
+              {generateResult.skipped || 0} skipped (already exist)
             </p>
-            <div className="mt-2 space-y-0.5">
-              {generateResult.details.map((d: any, i: number) => (
-                <p key={i} className="text-xs text-muted-foreground flex items-center gap-1.5">
-                  {d.result === 'CREATED' ? (
-                    <CheckCircle className="h-3 w-3 text-green-500" />
-                  ) : d.result === 'ERROR' ? (
-                    <AlertTriangle className="h-3 w-3 text-red-500" />
-                  ) : (
-                    <span className="w-3 h-3 rounded-full bg-gray-300 inline-block" />
-                  )}
-                  {d.subject_name} – {d.batch_name} at {format12Hour(d.start_time)}
-                  {d.reason && <span className="text-muted-foreground"> ({d.reason})</span>}
-                </p>
-              ))}
-            </div>
+            {generateResult.details && generateResult.details.length > 0 && (
+              <div className="mt-2 space-y-0.5">
+                {generateResult.details.map((d: any, i: number) => (
+                  <p key={i} className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    {d.result === 'CREATED' ? (
+                      <CheckCircle className="h-3 w-3 text-green-500" />
+                    ) : d.result === 'ERROR' ? (
+                      <AlertTriangle className="h-3 w-3 text-red-500" />
+                    ) : (
+                      <span className="w-3 h-3 rounded-full bg-gray-300 inline-block" />
+                    )}
+                    {d.subject_name || 'Subject'} – {d.batch_name || 'Batch'} at {format12Hour(d.start_time || '09:00')}
+                    {d.reason && <span className="text-muted-foreground"> ({d.reason})</span>}
+                  </p>
+                ))}
+              </div>
+            )}
           </div>
           <button onClick={() => setGenerateResult(null)} className="p-1 rounded hover:bg-muted">
             <X className="h-4 w-4 text-muted-foreground" />
@@ -930,15 +981,17 @@ export default function TimetablePage() {
 
                         <tbody className="divide-y">
                           {day.slots.map((slot) => {
-                            const fac = facultyMap.get(slot.faculty_id || '')
+                            const fac = facultyMap.get(slot.faculty_id || '') || faculties.find((f) => f.faculty_id === slot.faculty_id)
+                            const facultyDisplayName = slot.faculty_name || fac?.name
                             const dept = fac?.department_id ? deptMap.get(fac.department_id) : null
                             const duration = formatDuration(slot.start_time, slot.end_time)
+                            const isActive = slot.active !== false
 
                             return (
                               <tr
                                 key={slot.slot_id}
                                 className={`hover:bg-muted/30 transition-colors ${
-                                  !slot.active ? 'opacity-40' : ''
+                                  !isActive ? 'opacity-40' : ''
                                 }`}
                               >
                                 <td className="px-4 py-3 align-middle font-mono whitespace-nowrap">
@@ -957,9 +1010,11 @@ export default function TimetablePage() {
 
                                 <td className="px-4 py-3 align-middle">
                                   <div className="flex items-center gap-1.5 flex-wrap">
-                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-muted text-foreground font-mono">
-                                      {slot.subject_code}
-                                    </span>
+                                    {slot.subject_code && (
+                                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-muted text-foreground font-mono">
+                                        {slot.subject_code}
+                                      </span>
+                                    )}
                                     <span className="font-bold text-foreground text-sm">
                                       {slot.subject_name}
                                     </span>
@@ -978,14 +1033,14 @@ export default function TimetablePage() {
                                 </td>
 
                                 <td className="px-4 py-3 align-middle">
-                                  {slot.faculty_name ? (
+                                  {facultyDisplayName ? (
                                     <div className="flex items-center gap-2">
                                       <div className="w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs flex-shrink-0">
-                                        {slot.faculty_name.charAt(0)}
+                                        {facultyDisplayName.charAt(0)}
                                       </div>
                                       <div>
                                         <div className="font-semibold text-foreground">
-                                          {slot.faculty_name}
+                                          {facultyDisplayName}
                                         </div>
                                         <div className="text-[10px] text-muted-foreground flex items-center gap-1">
                                           {fac?.designation && <span>{fac.designation}</span>}
@@ -1019,7 +1074,7 @@ export default function TimetablePage() {
                                   <button
                                     onClick={() => handleToggleActive(slot)}
                                     className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-colors ${
-                                      slot.active
+                                      isActive
                                         ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20 hover:bg-emerald-500/20'
                                         : 'bg-muted text-muted-foreground border-border hover:bg-muted/80'
                                     }`}
@@ -1027,10 +1082,10 @@ export default function TimetablePage() {
                                   >
                                     <span
                                       className={`w-1.5 h-1.5 rounded-full ${
-                                        slot.active ? 'bg-emerald-500' : 'bg-muted-foreground'
+                                        isActive ? 'bg-emerald-500' : 'bg-muted-foreground'
                                       }`}
                                     />
-                                    <span>{slot.active ? 'Active' : 'Inactive'}</span>
+                                    <span>{isActive ? 'Active' : 'Inactive'}</span>
                                   </button>
                                 </td>
 
@@ -1107,55 +1162,61 @@ export default function TimetablePage() {
                     No classes
                   </p>
                 ) : (
-                  day.slots.map((slot) => (
-                    <div
-                      key={slot.slot_id}
-                      className={`border rounded-xl p-2.5 text-xs space-y-1 ${slotColor(
-                        slot.subject_id
-                      )} ${!slot.active ? 'opacity-40' : ''}`}
-                    >
-                      <div className="flex items-start justify-between gap-1">
-                        <p className="font-bold leading-tight truncate text-sm">
-                          {slot.subject_name}
-                        </p>
-                        <div className="flex gap-0.5 flex-shrink-0">
-                          <button
-                            onClick={() => openEdit(slot)}
-                            className="p-1 rounded hover:bg-black/10"
-                            title="Edit"
-                          >
-                            <Pencil className="h-3 w-3" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(slot)}
-                            className="p-1 rounded hover:bg-black/10"
-                            title="Delete"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </button>
+                  day.slots.map((slot) => {
+                    const fac = facultyMap.get(slot.faculty_id || '') || faculties.find((f) => f.faculty_id === slot.faculty_id)
+                    const facultyDisplayName = slot.faculty_name || fac?.name
+                    const isActive = slot.active !== false
+
+                    return (
+                      <div
+                        key={slot.slot_id}
+                        className={`border rounded-xl p-2.5 text-xs space-y-1 ${slotColor(
+                          slot.subject_id
+                        )} ${!isActive ? 'opacity-40' : ''}`}
+                      >
+                        <div className="flex items-start justify-between gap-1">
+                          <p className="font-bold leading-tight truncate text-sm">
+                            {slot.subject_name}
+                          </p>
+                          <div className="flex gap-0.5 flex-shrink-0">
+                            <button
+                              onClick={() => openEdit(slot)}
+                              className="p-1 rounded hover:bg-black/10"
+                              title="Edit"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(slot)}
+                              className="p-1 rounded hover:bg-black/10"
+                              title="Delete"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
                         </div>
+                        <div className="flex items-center gap-1 font-semibold text-[11px] opacity-90 font-mono">
+                          <Clock className="h-3 w-3 inline text-primary/80 shrink-0" />
+                          <span>
+                            {format12Hour(slot.start_time)} – {format12Hour(slot.end_time)}
+                          </span>
+                        </div>
+                        <p className="opacity-80 font-medium truncate">{slot.batch_name}</p>
+                        {facultyDisplayName && (
+                          <p className="opacity-70 truncate text-[11px]">👨‍🏫 {facultyDisplayName}</p>
+                        )}
+                        {slot.room && <p className="opacity-70 text-[11px]">📍 {slot.room}</p>}
+                        {!isActive && (
+                          <button
+                            onClick={() => handleToggleActive(slot)}
+                            className="text-[10px] underline opacity-70"
+                          >
+                            Activate
+                          </button>
+                        )}
                       </div>
-                      <div className="flex items-center gap-1 font-semibold text-[11px] opacity-90 font-mono">
-                        <Clock className="h-3 w-3 inline text-primary/80 shrink-0" />
-                        <span>
-                          {format12Hour(slot.start_time)} – {format12Hour(slot.end_time)}
-                        </span>
-                      </div>
-                      <p className="opacity-80 font-medium truncate">{slot.batch_name}</p>
-                      {slot.faculty_name && (
-                        <p className="opacity-70 truncate text-[11px]">👨‍🏫 {slot.faculty_name}</p>
-                      )}
-                      {slot.room && <p className="opacity-70 text-[11px]">📍 {slot.room}</p>}
-                      {!slot.active && (
-                        <button
-                          onClick={() => handleToggleActive(slot)}
-                          className="text-[10px] underline opacity-70"
-                        >
-                          Activate
-                        </button>
-                      )}
-                    </div>
-                  ))
+                    )
+                  })
                 )}
               </div>
 

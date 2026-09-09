@@ -57,7 +57,8 @@ export default function BatchPage() {
     setSaving(true)
     try {
       if (editing) {
-        await window.api.batch.update(editing.batch_id, {
+        const batchId = (editing as any).batch_id || (editing as any).id
+        await window.api.batch.update(batchId, {
           batch_name: form.batch_name.trim(), program_id: form.program_id,
           department_id: form.department_id ? form.department_id : null,
           admission_year: form.admission_year,
@@ -81,12 +82,19 @@ export default function BatchPage() {
   }
 
   const handleToggleActive = async (b: Batch) => {
-    try { await window.api.batch.update(b.batch_id, { active: !b.active }); await load() }
+    try {
+      const bid = (b as any).batch_id || (b as any).id
+      const nextActive = b.active === false ? true : false
+      await window.api.batch.update(bid, { ...b, active: nextActive }); await load()
+    }
     catch (e: unknown) { alert(e instanceof Error ? e.message : 'Update failed') }
   }
 
   const handleToggleNotifyParents = async (b: Batch) => {
-    try { await window.api.batch.update(b.batch_id, { notify_parents: !b.notify_parents }); await load() }
+    try {
+      const bid = (b as any).batch_id || (b as any).id
+      await window.api.batch.update(bid, { notify_parents: !b.notify_parents }); await load()
+    }
     catch (e: unknown) { alert(e instanceof Error ? e.message : 'Update failed') }
   }
 
@@ -240,9 +248,9 @@ export default function BatchPage() {
                   </td>
                   <td className="px-4 py-3">
                     <button onClick={() => handleToggleActive(b)}
-                      className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full ${b.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                      {b.active ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
-                      {b.active ? 'Active' : 'Inactive'}
+                      className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full ${b.active !== false ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                      {b.active !== false ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
+                      {b.active !== false ? 'Active' : 'Inactive'}
                     </button>
                   </td>
                   <td className="px-4 py-3 text-right">

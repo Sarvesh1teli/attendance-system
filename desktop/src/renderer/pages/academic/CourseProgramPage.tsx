@@ -75,7 +75,11 @@ export default function CourseProgramPage() {
   }
 
   const handleToggleActive = async (p: CourseProgram) => {
-    try { await window.api.courseProgram.update(p.program_id, { active: !p.active }); await load() }
+    try {
+      const nextActive = p.active === false ? true : false
+      await window.api.courseProgram.update(p.program_id, { ...p, active: nextActive })
+      await load()
+    }
     catch (e: unknown) { alert(e instanceof Error ? e.message : 'Update failed') }
   }
 
@@ -182,9 +186,9 @@ export default function CourseProgramPage() {
                   <td className="px-4 py-3 text-muted-foreground">{deptName(p.department_id)}</td>
                   <td className="px-4 py-3">
                     <button onClick={() => handleToggleActive(p)}
-                      className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full ${p.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                      {p.active ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
-                      {p.active ? 'Active' : 'Inactive'}
+                      className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full ${p.active !== false ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                      {p.active !== false ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
+                      {p.active !== false ? 'Active' : 'Inactive'}
                     </button>
                   </td>
                   <td className="px-4 py-3">

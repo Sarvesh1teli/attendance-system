@@ -73,7 +73,11 @@ export default function TopicPage() {
   }
 
   const handleToggleActive = async (t: Topic) => {
-    try { await window.api.topic.update(t.topic_id, { active: !t.active }); await loadTopics(selectedSubject) }
+    try {
+      const nextActive = t.active === false ? true : false
+      await window.api.topic.update(t.topic_id, { ...t, active: nextActive })
+      await loadTopics(selectedSubject)
+    }
     catch (e: unknown) { alert(e instanceof Error ? e.message : 'Update failed') }
   }
 
@@ -175,9 +179,9 @@ export default function TopicPage() {
                   <td className="px-4 py-3 text-muted-foreground">{t.chapter_name ?? '—'}</td>
                   <td className="px-4 py-3">
                     <button onClick={() => handleToggleActive(t)}
-                      className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full ${t.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                      {t.active ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
-                      {t.active ? 'Active' : 'Inactive'}
+                      className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full ${t.active !== false ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                      {t.active !== false ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
+                      {t.active !== false ? 'Active' : 'Inactive'}
                     </button>
                   </td>
                   <td className="px-4 py-3 text-right">

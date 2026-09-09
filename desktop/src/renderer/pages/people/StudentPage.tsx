@@ -212,19 +212,23 @@ export default function StudentPage() {
   // Switch to Edit Form
   const handleOpenEdit = (s: Student) => {
     setEditingStudent(s)
+    const matchingBatch = batches.find((b) => (b.batch_id || (b as any).id) === s.batch_id)
+    const programId = s.program_id || matchingBatch?.program_id || (programs[0]?.program_id ?? '')
+    const departmentId = s.department_id || matchingBatch?.department_id || ''
+
     setForm({
-      name: s.name,
+      name: s.name || '',
       gender: (s.gender as Gender) || '',
       date_of_birth: s.date_of_birth || '',
       phone: s.phone || '',
       parent_phone: s.parent_phone || '',
       admission_number: s.admission_number || '',
       batch_id: s.batch_id || '',
-      program_id: s.program_id || '',
-      department_id: s.department_id || '',
+      program_id: programId,
+      department_id: departmentId,
       admission_date: s.admission_date || new Date().toISOString().slice(0, 10),
       admission_type: (s.admission_type as any) || 'NEW',
-      current_status: s.current_status,
+      current_status: s.current_status || 'ACTIVE',
     })
     setFormError('')
     setActiveTab('add')
@@ -242,8 +246,15 @@ export default function StudentPage() {
     setFormError('')
     try {
       if (editingStudent) {
-        await window.api.student.update(editingStudent.student_id, {
+        const studentId = editingStudent.student_id || (editingStudent as any).id
+        await window.api.student.update(studentId, {
           name: form.name.trim(),
+          admission_number: form.admission_number.trim(),
+          batch_id: form.batch_id,
+          program_id: form.program_id,
+          department_id: form.department_id || undefined,
+          admission_date: form.admission_date,
+          admission_type: form.admission_type,
           gender: form.gender ? form.gender : undefined,
           date_of_birth: form.date_of_birth || undefined,
           phone: form.phone.trim() || undefined,
@@ -348,14 +359,7 @@ export default function StudentPage() {
   return (
     <div className="space-y-6">
       {/* ─── TOP BAR WITH MAIN TABS MENU ────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Students</h1>
-          <p className="text-muted-foreground text-sm">
-            Manage student enrollment, profiles, and attendance credentials
-          </p>
-        </div>
-
+      <div className="flex items-center justify-start gap-4 border-b pb-4">
         {/* Tab Navigation Menu */}
         <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-xl border">
           <button
@@ -428,23 +432,35 @@ export default function StudentPage() {
       {/* ═══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'list' && (
         <div className="space-y-5">
-          {/* Quick Metrics Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-            <div className="bg-card border rounded-xl p-4 shadow-sm">
-              <span className="text-xs font-medium text-muted-foreground">Total Students</span>
-              <p className="text-2xl font-bold mt-1 text-foreground">{totalCount}</p>
+          {/* Quick Metrics Cards (Compact Sleek Design) */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <div className="bg-card border rounded-lg p-2.5 px-3.5 shadow-xs flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Total Students</span>
+                <p className="text-lg font-bold text-foreground leading-none mt-1">{totalCount}</p>
+              </div>
+              <Users className="h-4 w-4 text-muted-foreground/60" />
             </div>
-            <div className="bg-card border rounded-xl p-4 shadow-sm">
-              <span className="text-xs font-medium text-emerald-600">Active Status</span>
-              <p className="text-2xl font-bold mt-1 text-foreground">{activeCount}</p>
+            <div className="bg-card border rounded-lg p-2.5 px-3.5 shadow-xs flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-medium text-emerald-600 uppercase tracking-wide">Active Status</span>
+                <p className="text-lg font-bold text-emerald-700 leading-none mt-1">{activeCount}</p>
+              </div>
+              <CheckCircle2 className="h-4 w-4 text-emerald-500/60" />
             </div>
-            <div className="bg-card border rounded-xl p-4 shadow-sm">
-              <span className="text-xs font-medium text-blue-600">Face Enrolled</span>
-              <p className="text-2xl font-bold mt-1 text-foreground">{enrolledCount}</p>
+            <div className="bg-card border rounded-lg p-2.5 px-3.5 shadow-xs flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-medium text-blue-600 uppercase tracking-wide">Face Enrolled</span>
+                <p className="text-lg font-bold text-blue-700 leading-none mt-1">{enrolledCount}</p>
+              </div>
+              <GraduationCap className="h-4 w-4 text-blue-500/60" />
             </div>
-            <div className="bg-card border rounded-xl p-4 shadow-sm">
-              <span className="text-xs font-medium text-amber-600">Face Pending</span>
-              <p className="text-2xl font-bold mt-1 text-foreground">{pendingCount}</p>
+            <div className="bg-card border rounded-lg p-2.5 px-3.5 shadow-xs flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-medium text-amber-600 uppercase tracking-wide">Face Pending</span>
+                <p className="text-lg font-bold text-amber-700 leading-none mt-1">{pendingCount}</p>
+              </div>
+              <AlertTriangle className="h-4 w-4 text-amber-500/60" />
             </div>
           </div>
 
@@ -878,11 +894,10 @@ export default function StudentPage() {
                   </label>
                   <input
                     type="text"
-                    disabled={Boolean(editingStudent)}
                     value={form.admission_number}
                     onChange={(e) => setForm((f) => ({ ...f, admission_number: e.target.value }))}
                     placeholder="e.g. 2026-MED-0042"
-                    className="w-full border rounded-xl px-3.5 py-2.5 text-sm bg-background focus:ring-2 focus:ring-primary/20 focus:outline-none transition-all disabled:opacity-60 disabled:bg-muted"
+                    className="w-full border rounded-xl px-3.5 py-2.5 text-sm bg-background focus:ring-2 focus:ring-primary/20 focus:outline-none transition-all"
                   />
                   <p className="text-[11px] text-muted-foreground">Unique institutional ID</p>
                 </div>
@@ -893,10 +908,9 @@ export default function StudentPage() {
                     <BookOpen className="h-3.5 w-3.5 text-muted-foreground" /> Course / Program *
                   </label>
                   <select
-                    disabled={Boolean(editingStudent)}
                     value={form.program_id}
                     onChange={(e) => setForm((f) => ({ ...f, program_id: e.target.value }))}
-                    className="w-full border rounded-xl px-3.5 py-2.5 text-sm bg-background focus:ring-2 focus:ring-primary/20 focus:outline-none transition-all disabled:opacity-60 disabled:bg-muted"
+                    className="w-full border rounded-xl px-3.5 py-2.5 text-sm bg-background focus:ring-2 focus:ring-primary/20 focus:outline-none transition-all"
                   >
                     <option value="">— Select Program —</option>
                     {programs.map((p) => (
@@ -914,10 +928,9 @@ export default function StudentPage() {
                     <Users className="h-3.5 w-3.5 text-muted-foreground" /> Academic Batch *
                   </label>
                   <select
-                    disabled={Boolean(editingStudent)}
                     value={form.batch_id}
                     onChange={(e) => setForm((f) => ({ ...f, batch_id: e.target.value }))}
-                    className="w-full border rounded-xl px-3.5 py-2.5 text-sm bg-background focus:ring-2 focus:ring-primary/20 focus:outline-none transition-all disabled:opacity-60 disabled:bg-muted"
+                    className="w-full border rounded-xl px-3.5 py-2.5 text-sm bg-background focus:ring-2 focus:ring-primary/20 focus:outline-none transition-all"
                   >
                     <option value="">— Select Cohort Batch —</option>
                     {batches.map((b) => (
@@ -935,10 +948,9 @@ export default function StudentPage() {
                     <Building2 className="h-3.5 w-3.5 text-muted-foreground" /> Department (Optional)
                   </label>
                   <select
-                    disabled={Boolean(editingStudent)}
                     value={form.department_id}
                     onChange={(e) => setForm((f) => ({ ...f, department_id: e.target.value }))}
-                    className="w-full border rounded-xl px-3.5 py-2.5 text-sm bg-background focus:ring-2 focus:ring-primary/20 focus:outline-none transition-all disabled:opacity-60 disabled:bg-muted"
+                    className="w-full border rounded-xl px-3.5 py-2.5 text-sm bg-background focus:ring-2 focus:ring-primary/20 focus:outline-none transition-all"
                   >
                     <option value="">— Default from Program —</option>
                     {departments.map((d) => (
@@ -956,10 +968,9 @@ export default function StudentPage() {
                   </label>
                   <input
                     type="date"
-                    disabled={Boolean(editingStudent)}
                     value={form.admission_date}
                     onChange={(e) => setForm((f) => ({ ...f, admission_date: e.target.value }))}
-                    className="w-full border rounded-xl px-3.5 py-2.5 text-sm bg-background focus:ring-2 focus:ring-primary/20 focus:outline-none transition-all disabled:opacity-60 disabled:bg-muted"
+                    className="w-full border rounded-xl px-3.5 py-2.5 text-sm bg-background focus:ring-2 focus:ring-primary/20 focus:outline-none transition-all"
                   />
                 </div>
 
@@ -967,7 +978,6 @@ export default function StudentPage() {
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-foreground">Admission Type</label>
                   <select
-                    disabled={Boolean(editingStudent)}
                     value={form.admission_type}
                     onChange={(e) =>
                       setForm((f) => ({
@@ -975,7 +985,7 @@ export default function StudentPage() {
                         admission_type: e.target.value as NonNullable<CreateStudentInput['admission_type']>,
                       }))
                     }
-                    className="w-full border rounded-xl px-3.5 py-2.5 text-sm bg-background focus:ring-2 focus:ring-primary/20 focus:outline-none transition-all disabled:opacity-60 disabled:bg-muted"
+                    className="w-full border rounded-xl px-3.5 py-2.5 text-sm bg-background focus:ring-2 focus:ring-primary/20 focus:outline-none transition-all"
                   >
                     <option value="NEW">New Admission (Regular)</option>
                     <option value="LATERAL">Lateral Entry</option>

@@ -12,6 +12,7 @@ import {
   ScanFace,
   Bell,
   Calendar,
+  X,
 } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '../../lib/utils'
@@ -73,17 +74,28 @@ const navItems: NavItem[] = [
   { label: 'Settings', to: '/settings', icon: Settings },
 ]
 
-export function Sidebar() {
+export function Sidebar({ onNavigate, onClose }: { onNavigate?: () => void; onClose?: () => void }) {
   const [expanded, setExpanded] = useState<string[]>(['Academic', 'People', 'Face Enrollment'])
 
   const toggle = (label: string) =>
     setExpanded((p) => (p.includes(label) ? p.filter((l) => l !== label) : [...p, label]))
 
   return (
-    <aside className="w-56 flex-shrink-0 border-r bg-card flex flex-col">
-      <div className="h-14 flex items-center px-4 border-b">
-        <GraduationCap className="h-6 w-6 text-primary mr-2" />
-        <span className="font-bold text-sm">Teli Attendance</span>
+    <aside className="w-full h-full min-h-0 flex flex-col bg-card">
+      <div className="h-14 shrink-0 flex items-center justify-between px-4 border-b">
+        <div className="flex items-center gap-2">
+          <GraduationCap className="h-6 w-6 text-primary shrink-0" />
+          <span className="font-bold text-sm tracking-tight text-foreground">Teli Attendance</span>
+        </div>
+        {onClose && (
+          <button
+            onClick={onClose}
+            aria-label="Close navigation"
+            className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        )}
       </div>
       <nav className="flex-1 overflow-y-auto py-2 px-2">
         {navItems.map((item) => {
@@ -93,6 +105,7 @@ export function Sidebar() {
               <div key={item.label} className="mb-1">
                 <button
                   onClick={() => toggle(item.label)}
+                  aria-expanded={isOpen}
                   className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
                 >
                   <item.icon className="h-4 w-4" />
@@ -107,9 +120,10 @@ export function Sidebar() {
                       <NavLink
                         key={child.to}
                         to={child.to}
+                        onClick={onNavigate}
                         className={({ isActive }) =>
                           cn(
-                            'block px-3 py-1.5 rounded-md text-sm transition-colors',
+                            'block px-3 py-3 lg:py-1.5 rounded-md text-sm transition-colors',
                             isActive
                               ? 'bg-primary text-primary-foreground font-medium'
                               : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
@@ -128,6 +142,7 @@ export function Sidebar() {
             <NavLink
               key={item.to}
               to={item.to!}
+              onClick={onNavigate}
               className={({ isActive }) =>
                 cn(
                   'flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium mb-1 transition-colors',

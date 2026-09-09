@@ -114,6 +114,7 @@ export default function FacultyFaceEnrollmentPage() {
     setSamples([])
     setEnrollmentComplete(false)
     setErrorMessage(null)
+    loadFaculty()
   }
 
   const filteredFaculty = facultyList.filter(

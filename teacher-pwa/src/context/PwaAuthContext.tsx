@@ -131,19 +131,7 @@ export function PwaAuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      // 2. Check local Dexie teacher profiles for this tenant
-      const allProfiles = await db.teacherProfile.toArray()
-      const found = allProfiles.find(
-        (p) =>
-          (p.institution_name?.toLowerCase() === cleanInst.toLowerCase() || p.institution_id?.toLowerCase() === cleanInst.toLowerCase()) &&
-          (p.username.toLowerCase() === lower || p.employee_id.toLowerCase() === lower)
-      )
-      if (found) {
-        setTeacher(found)
-        return { success: true }
-      }
-
-      return { success: false, error: 'Account not found in institution ' + cleanInst + '. Please verify your username and password.' }
+      return { success: false, error: 'Connect to the internet to verify your username and password.' }
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : 'Login failed' }
     }
@@ -419,10 +407,6 @@ export function PwaAuthProvider({ children }: { children: React.ReactNode }) {
                 face_descriptor: parsedDesc,
               }
             })
-            const demoStudents = await db.students.filter(s => s.id.startsWith('stu-')).toArray()
-            if (demoStudents.length > 0) {
-              await db.students.bulkDelete(demoStudents.map(s => s.id))
-            }
             await db.students.bulkPut(mappedStudents)
           }
         }

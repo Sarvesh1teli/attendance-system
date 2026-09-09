@@ -73,7 +73,11 @@ export default function SubjectPage() {
   }
 
   const handleToggleActive = async (s: Subject) => {
-    try { await window.api.subject.update(s.subject_id, { active: !s.active }); await load() }
+    try {
+      const nextActive = s.active === false ? true : false
+      await window.api.subject.update(s.subject_id, { ...s, active: nextActive })
+      await load()
+    }
     catch (e: unknown) { alert(e instanceof Error ? e.message : 'Update failed') }
   }
 
@@ -182,9 +186,9 @@ export default function SubjectPage() {
                   <td className="px-4 py-3 text-muted-foreground">{deptName(s.department_id)}</td>
                   <td className="px-4 py-3">
                     <button onClick={() => handleToggleActive(s)}
-                      className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full ${s.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                      {s.active ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
-                      {s.active ? 'Active' : 'Inactive'}
+                      className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full ${s.active !== false ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                      {s.active !== false ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
+                      {s.active !== false ? 'Active' : 'Inactive'}
                     </button>
                   </td>
                   <td className="px-4 py-3 text-right">

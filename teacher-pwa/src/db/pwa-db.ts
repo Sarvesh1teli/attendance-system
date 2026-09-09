@@ -145,7 +145,8 @@ export async function seedInitialDataIfEmpty(): Promise<void> {
     await db.classes.bulkDelete(demoClasses.map(c => c.id))
   }
 
-  const demoStudents = await db.students.filter(s => s.id.startsWith('stu-') || s.student_id.startsWith('stu-')).toArray()
+  const legacyDemoIds = ['stu-001', 'stu-002', 'stu-003', 'stu-004', 'demo-stu-1']
+  const demoStudents = await db.students.filter(s => legacyDemoIds.includes(s.id)).toArray()
   if (demoStudents.length > 0) {
     await db.students.bulkDelete(demoStudents.map(s => s.id))
   }

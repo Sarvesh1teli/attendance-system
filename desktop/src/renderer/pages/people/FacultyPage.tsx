@@ -37,6 +37,8 @@ export default function FacultyPage() {
         window.api.appUser.list(),
       ])
       setFaculty(f); setDepartments(d); setUsers(u)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not load teacher accounts')
     } finally { setLoading(false) }
   }
 
@@ -62,7 +64,7 @@ export default function FacultyPage() {
       employee_id: f.employee_id, name: f.name, gender: f.gender ?? '', designation: f.designation ?? '',
       department_id: f.department_id ?? '', phone: f.phone ?? '', email: f.email ?? '',
       joining_date: f.joining_date ?? '', status: f.status,
-      username: existingUser?.username ?? f.employee_id,
+      username: existingUser?.username ?? '',
       password: '',
     })
     setError(''); setShowForm(true)
@@ -71,6 +73,8 @@ export default function FacultyPage() {
   const handleSave = async () => {
     if (!form.employee_id.trim()) { setError('Employee ID is required'); return }
     if (!form.name.trim()) { setError('Name is required'); return }
+    if (!form.username.trim()) { setError('Login username is required'); return }
+    if (!users.some(u => u.faculty_id === editing?.faculty_id) && !form.password) { setError('Password is required for a new teacher login'); return }
     setSaving(true)
     try {
       if (editing) {
@@ -86,13 +90,13 @@ export default function FacultyPage() {
           if (existingUser) {
             await window.api.appUser.update(existingUser.user_id, {
               username: form.username.trim(),
-              new_password: form.password.trim() ? form.password.trim() : undefined,
+              new_password: form.password ? form.password : undefined,
             })
-          } else if (form.password.trim()) {
+          } else if (form.password) {
             await window.api.appUser.create({
               faculty_id: editing.faculty_id,
               username: form.username.trim(),
-              password: form.password.trim(),
+              password: form.password,
               role: 'FACULTY',
             })
           }
@@ -106,19 +110,16 @@ export default function FacultyPage() {
         }
         const created = await window.api.faculty.create(input)
 
-        const finalUsername = form.username.trim() || form.employee_id.trim()
-        const finalPassword = form.password.trim() || 'teacher123'
+        const finalUsername = form.username.trim()
+        const finalPassword = form.password
         if (finalUsername && finalPassword) {
-          try {
-            await window.api.appUser.create({
+          setEditing(created)
+          await window.api.appUser.create({
               faculty_id: created.faculty_id,
               username: finalUsername,
               password: finalPassword,
               role: 'FACULTY',
             })
-          } catch (userErr) {
-            console.warn('Could not auto-create app user:', userErr)
-          }
         }
       }
       setShowForm(false); await load()
@@ -155,6 +156,7 @@ export default function FacultyPage() {
         </select>
       </div>
 
+      {error && !showForm && <p className="text-destructive text-sm">{error}</p>}
       {showForm && (
         <div className="bg-card border rounded-lg p-6 space-y-4">
           <h2 className="font-semibold">{editing ? 'Edit Faculty' : 'New Faculty'}</h2>
@@ -233,7 +235,7 @@ export default function FacultyPage() {
                     className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-background"
                     value={form.username}
                     onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
-                    placeholder={form.employee_id || 'e.g. FAC001'}
+                    placeholder="Enter teacher login username"
                   />
                   <p className="text-xs text-muted-foreground mt-1">Username to sign in to Teacher PWA</p>
                 </div>

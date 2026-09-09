@@ -197,7 +197,20 @@ public class AuthController {
         }
 
         String cleanUser = username.trim();
-        var teacherOpt = syncService.authenticateTeacher(cleanUser);
+        if (institutionId == null || institutionId.isBlank()) {
+            return ResponseEntity.ok(Map.of("success", false, "error", "Institution code is required"));
+        }
+        List<CloudTeacher> teachers = teacherRepo.findByInstitutionId(institutionId.trim());
+        if (teachers.isEmpty()) {
+            teachers = teacherRepo.findAll().stream()
+                    .filter(t -> institutionId.trim().equalsIgnoreCase(t.getInstitutionId()))
+                    .toList();
+        }
+        var teacherOpt = teachers.stream()
+                .filter(t -> cleanUser.equalsIgnoreCase(t.getUsername()) || cleanUser.equalsIgnoreCase(t.getEmployeeId()))
+                .filter(t -> com.teli.attendance.cloud.service.TeacherPasswords.matches(
+                        request.get("password"), t.getPasswordHash()))
+                .findFirst();
 
         if (teacherOpt.isPresent()) {
             var t = teacherOpt.get();
@@ -217,7 +230,7 @@ public class AuthController {
 
         return ResponseEntity.ok(Map.of(
                 "success", false,
-                "error", "Teacher account not found for username/ID: " + cleanUser
+                "error", "Invalid institution, username, or password"
         ));
     }
 

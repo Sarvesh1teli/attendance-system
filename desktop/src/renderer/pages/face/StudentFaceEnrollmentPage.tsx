@@ -1,15 +1,18 @@
-import { useState, useEffect } from 'react'
-import { Camera, User, CheckCircle, RefreshCw, X, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { Camera, User, CheckCircle, RefreshCw, X, ShieldAlert, ShieldCheck, Filter, RotateCcw, Search } from 'lucide-react'
 import { CameraCapture, SampleType } from '../../components/face/CameraCapture'
 import { EnrollmentStatusBadge } from '../../components/face/EnrollmentStatus'
-import type { Student, FaceEnrollment, FaceSample } from '../../../main/ipc/types'
+import type { Student, Batch, FaceEnrollment, FaceSample } from '../../../main/ipc/types'
 import { faceRecognitionService } from '../../services/FaceRecognitionService'
 import * as faceapi from '@vladmandic/face-api'
 
 export default function StudentFaceEnrollmentPage() {
   const [students, setStudents] = useState<Student[]>([])
+  const [batches, setBatches] = useState<Batch[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [filterBatch, setFilterBatch] = useState('')
+  const [filterFaceStatus, setFilterFaceStatus] = useState<'ALL' | 'ENROLLED' | 'PENDING'>('ALL')
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
   const [currentEnrollment, setCurrentEnrollment] = useState<FaceEnrollment | null>(null)
   const [samples, setSamples] = useState<FaceSample[]>([])
@@ -18,21 +21,29 @@ export default function StudentFaceEnrollmentPage() {
   const [actionLoading, setActionLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  const loadStudents = async () => {
+  const loadData = async () => {
     setLoading(true)
     try {
-      const list = await window.api.student.list()
-      setStudents(list)
+      const [list, bList] = await Promise.all([
+        window.api.student.list(),
+        window.api.batch.list(),
+      ])
+      setStudents(list || [])
+      setBatches(bList || [])
     } catch (err) {
-      console.error('Failed to load students:', err)
+      console.error('Failed to load students and batches:', err)
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    loadStudents()
+    loadData()
   }, [])
+
+  const batchMap = useMemo(() => {
+    return new Map((batches || []).map((b) => [b.batch_id, b.batch_name]))
+  }, [batches])
 
   const startEnrollment = async (student: Student) => {
     setSelectedStudent(student)
@@ -147,21 +158,62 @@ export default function StudentFaceEnrollmentPage() {
     }
   }
 
+  const handleManualComplete = async () => {
+    if (!currentEnrollment) return
+    setActionLoading(true)
+    try {
+      await window.api.faceEnrollment.complete(currentEnrollment.enrollment_id)
+      setEnrollmentComplete(true)
+      setStudents((prev) =>
+        prev.map((s) =>
+          s.student_id === currentEnrollment.entity_id ? { ...s, face_enrolled: true } : s
+        )
+      )
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Failed to complete enrollment')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
   const closeModal = () => {
     setSelectedStudent(null)
     setCurrentEnrollment(null)
     setSamples([])
     setEnrollmentComplete(false)
     setErrorMessage(null)
+    loadData()
   }
 
-  const filteredStudents = students.filter(
-    (s) =>
-      s.name.toLowerCase().includes(search.toLowerCase()) ||
-      (s as unknown as { admission_number?: string }).admission_number
-        ?.toLowerCase()
-        .includes(search.toLowerCase())
-  )
+  const filteredStudents = useMemo(() => {
+    return students.filter((s) => {
+      const q = search.trim().toLowerCase()
+      const admNo = ((s as any).admission_number || (s as any).admissionNumber || '').toLowerCase()
+      const sName = (s.name || '').toLowerCase()
+      const matchSearch = !q || sName.includes(q) || admNo.includes(q)
+
+      const sBatchId = s.batch_id || (s as any).batchId || ''
+      const matchBatch = !filterBatch || sBatchId === filterBatch
+
+      const isEnrolled = !!(s.face_enrolled || (s as any).faceEnrolled)
+      const matchFace =
+        filterFaceStatus === 'ALL' ||
+        (filterFaceStatus === 'ENROLLED' && isEnrolled) ||
+        (filterFaceStatus === 'PENDING' && !isEnrolled)
+
+      return matchSearch && matchBatch && matchFace
+    })
+  }, [students, search, filterBatch, filterFaceStatus])
+
+  const totalCount = students.length
+  const enrolledCount = students.filter((s) => s.face_enrolled || (s as any).faceEnrolled).length
+  const pendingCount = totalCount - enrolledCount
+
+  const handleResetFilters = () => {
+    setSearch('')
+    setFilterBatch('')
+    setFilterFaceStatus('ALL')
+  }
 
   return (
     <div className="space-y-6">
@@ -170,17 +222,84 @@ export default function StudentFaceEnrollmentPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Student Face Enrollment</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Capture biometric samples for local face recognition attendance.
+            Capture biometric reference models for automated AI face recognition attendance.
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <input
-            type="text"
-            placeholder="Search students..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-64 border rounded-lg px-3.5 py-2 text-sm bg-card focus:outline-none focus:ring-2 focus:ring-primary"
-          />
+      </div>
+
+      {/* Summary Stat Counters */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="bg-card border rounded-xl p-4 shadow-sm">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Total Students</p>
+          <p className="text-2xl font-bold mt-1 text-foreground">{totalCount}</p>
+        </div>
+        <div className="bg-card border rounded-xl p-4 shadow-sm border-emerald-500/30 bg-emerald-500/5">
+          <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Face Enrolled</p>
+          <p className="text-2xl font-bold mt-1 text-emerald-600 dark:text-emerald-400">{enrolledCount}</p>
+        </div>
+        <div className="bg-card border rounded-xl p-4 shadow-sm border-amber-500/30 bg-amber-500/5">
+          <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wider">Face Pending</p>
+          <p className="text-2xl font-bold mt-1 text-amber-600 dark:text-amber-400">{pendingCount}</p>
+        </div>
+      </div>
+
+      {/* Filters Bar */}
+      <div className="bg-card border rounded-xl p-4 shadow-sm space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+            <Filter className="h-3.5 w-3.5" /> Filter Student Records
+          </span>
+          {(search || filterBatch || filterFaceStatus !== 'ALL') && (
+            <button
+              onClick={handleResetFilters}
+              className="text-xs text-primary hover:underline flex items-center gap-1"
+            >
+              <RotateCcw className="h-3 w-3" /> Reset Filters
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* Search Input */}
+          <div className="relative">
+            <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Search by name or admission no..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-9 pr-3.5 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          </div>
+
+          {/* Batch Filter Dropdown */}
+          <div>
+            <select
+              value={filterBatch}
+              onChange={(e) => setFilterBatch(e.target.value)}
+              className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="">All Batches ({batches.length})</option>
+              {batches.map((b) => (
+                <option key={b.batch_id} value={b.batch_id}>
+                  {b.batch_name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Face Status Dropdown */}
+          <div>
+            <select
+              value={filterFaceStatus}
+              onChange={(e) => setFilterFaceStatus(e.target.value as any)}
+              className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="ALL">All Face Status ({totalCount})</option>
+              <option value="ENROLLED">Enrolled ({enrolledCount})</option>
+              <option value="PENDING">Pending / Not Enrolled ({pendingCount})</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -194,15 +313,17 @@ export default function StudentFaceEnrollmentPage() {
         ) : filteredStudents.length === 0 ? (
           <div className="p-12 text-center text-muted-foreground">
             <User className="h-10 w-10 mx-auto text-muted-foreground/40 mb-3" />
-            <p className="font-medium text-foreground">No students found</p>
-            <p className="text-xs mt-1">Register students in the People directory first.</p>
+            <p className="font-medium text-foreground">No students found matching current filters</p>
+            <p className="text-xs mt-1">Try resetting the filter criteria or register new students.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="bg-muted/50 border-b text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 <tr>
-                  <th className="px-6 py-3.5">Student</th>
+                  <th className="px-6 py-3.5">Student Name</th>
+                  <th className="px-6 py-3.5">Admission No</th>
+                  <th className="px-6 py-3.5">Batch</th>
                   <th className="px-6 py-3.5">Gender</th>
                   <th className="px-6 py-3.5">Status</th>
                   <th className="px-6 py-3.5">Biometric Status</th>
@@ -210,44 +331,58 @@ export default function StudentFaceEnrollmentPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {filteredStudents.map((s) => (
-                  <tr key={s.student_id} className="hover:bg-muted/20 transition-colors">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center font-semibold text-xs flex-shrink-0">
-                          {s.name.charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                          <div className="font-semibold text-foreground">{s.name}</div>
-                          <div className="text-xs text-muted-foreground font-mono">
-                            {s.phone || 'No phone'}
+                {filteredStudents.map((s) => {
+                  const sBatchId = s.batch_id || (s as any).batchId || ''
+                  const batchName = batchMap.get(sBatchId) || sBatchId || '—'
+                  const admNo = (s as any).admission_number || (s as any).admissionNumber || '—'
+                  const isEnrolled = !!(s.face_enrolled || (s as any).faceEnrolled)
+
+                  return (
+                    <tr key={s.student_id} className="hover:bg-muted/20 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center font-semibold text-xs flex-shrink-0">
+                            {s.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="font-semibold text-foreground">{s.name}</div>
+                            <div className="text-xs text-muted-foreground font-mono">
+                              {s.phone || 'No phone'}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-muted-foreground text-xs">{s.gender || '—'}</td>
-                    <td className="px-6 py-4">
-                      <span className="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-secondary text-secondary-foreground">
-                        {s.current_status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <EnrollmentStatusBadge
-                        status={s.face_enrolled ? 'ENROLLED' : 'NOT_ENROLLED'}
-                      />
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        {s.face_enrolled ? (
-                          <>
-                            <button
-                              onClick={() => startEnrollment(s)}
-                              className="px-3 py-1.5 rounded-md border text-xs font-medium hover:bg-accent transition-colors"
-                            >
-                              Re-enroll
-                            </button>
-                            <button
-                              onClick={() => handleRevoke(s)}
+                      </td>
+                      <td className="px-6 py-4 font-mono text-xs text-muted-foreground">
+                        {admNo}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="inline-flex px-2.5 py-1 rounded-md text-xs font-medium bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                          {batchName}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-muted-foreground text-xs">{s.gender || '—'}</td>
+                      <td className="px-6 py-4">
+                        <span className="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-secondary text-secondary-foreground">
+                          {s.current_status || 'ACTIVE'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <EnrollmentStatusBadge
+                          status={isEnrolled ? 'ENROLLED' : 'NOT_ENROLLED'}
+                        />
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          {isEnrolled ? (
+                            <>
+                              <button
+                                onClick={() => startEnrollment(s)}
+                                className="px-3 py-1.5 rounded-md border text-xs font-medium hover:bg-accent transition-colors"
+                              >
+                                Re-enroll
+                              </button>
+                              <button
+                                onClick={() => handleRevoke(s)}
                               className="px-3 py-1.5 rounded-md text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
                             >
                               Revoke
@@ -263,9 +398,10 @@ export default function StudentFaceEnrollmentPage() {
                           </button>
                         )}
                       </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -351,6 +487,20 @@ export default function StudentFaceEnrollmentPage() {
                     onCapture={handleSampleCaptured}
                     disabled={actionLoading}
                   />
+
+                  {samples.length >= 1 && (
+                    <div className="flex justify-center pt-2">
+                      <button
+                        type="button"
+                        disabled={actionLoading}
+                        onClick={handleManualComplete}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow-md transition-all flex items-center gap-1.5 active:scale-[0.98]"
+                      >
+                        <CheckCircle className="h-4 w-4" />
+                        <span>Save & Complete Face Enrollment ({samples.length} sample{samples.length > 1 ? 's' : ''})</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

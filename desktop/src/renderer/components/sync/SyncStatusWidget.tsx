@@ -104,7 +104,7 @@ export function SyncStatusWidget() {
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="relative flex flex-wrap items-center gap-1 sm:gap-2">
       <div
         className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border bg-background text-xs text-muted-foreground shadow-sm"
         title={`Cloud: ${status?.cloudUrl || 'Offline'}`}
@@ -125,7 +125,7 @@ export function SyncStatusWidget() {
         disabled={loading}
         onClick={handlePush}
         title="Push Master Data (Roster, Topics, Subjects) to Cloud"
-        className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium border border-input rounded-md bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors disabled:opacity-50"
+        className="min-h-11 min-w-11 justify-center flex items-center gap-1 px-2.5 py-1 text-xs font-medium border border-input rounded-md bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors disabled:opacity-50"
       >
         <CloudUpload className={`w-3.5 h-3.5 text-sky-600 ${loading ? 'animate-bounce' : ''}`} />
         <span className="hidden sm:inline">Push Data</span>
@@ -136,19 +136,19 @@ export function SyncStatusWidget() {
         disabled={loading}
         onClick={handlePull}
         title="Pull Completed Sessions from Cloud"
-        className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium border border-input rounded-md bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors disabled:opacity-50"
+        className="min-h-11 min-w-11 justify-center flex items-center gap-1 px-2.5 py-1 text-xs font-medium border border-input rounded-md bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors disabled:opacity-50"
       >
         <CloudDownload className={`w-3.5 h-3.5 text-indigo-600 ${loading ? 'animate-bounce' : ''}`} />
         <span className="hidden sm:inline">Pull Attendance</span>
       </button>
 
       {syncFeedback && (
-        <span className="text-[11px] font-medium text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 px-2 py-0.5 rounded animate-in fade-in duration-200">
+        <span className="absolute left-0 top-full z-50 mt-2 w-56 max-w-[75vw] text-[11px] font-medium text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 px-2 py-0.5 rounded animate-in fade-in duration-200">
           {syncFeedback}
         </span>
       )}
       {errorFeedback && (
-        <span className="text-[11px] font-medium text-destructive bg-destructive/10 border border-destructive/20 px-2 py-0.5 rounded animate-in fade-in duration-200">
+        <span className="absolute left-0 top-full z-50 mt-2 w-56 max-w-[75vw] text-[11px] font-medium text-destructive bg-destructive/10 border border-destructive/20 px-2 py-0.5 rounded animate-in fade-in duration-200">
           {errorFeedback}
         </span>
       )}

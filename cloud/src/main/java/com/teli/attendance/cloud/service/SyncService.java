@@ -217,19 +217,6 @@ public class SyncService {
         List<CloudStudentRoster> students = studentRepo.findByInstitutionId(institutionId);
         List<CloudTeacher> teachers = teacherRepo.findByInstitutionId(institutionId);
 
-        // Fallback: If requested institutionId has no classes/students, fall back to any active institution with data
-        if (classes.isEmpty() && students.isEmpty()) {
-            List<CloudStudentRoster> allStudents = studentRepo.findAll();
-            if (!allStudents.isEmpty()) {
-                String fallbackInstId = allStudents.get(0).getInstitutionId();
-                classes = classRepo.findByInstitutionId(fallbackInstId);
-                topics = topicRepo.findByInstitutionId(fallbackInstId);
-                teachers = teacherRepo.findByInstitutionId(fallbackInstId);
-                students = allStudents;
-                institutionId = fallbackInstId;
-            }
-        }
-
         return PwaSyncPullResponse.builder()
                 .institutionId(institutionId)
                 .classes(classes)

@@ -91,7 +91,8 @@ export default function DepartmentPage() {
 
   const handleToggleActive = async (d: Department) => {
     try {
-      await window.api.department.update(d.department_id, { active: !d.active })
+      const nextActive = d.active === false ? true : false
+      await window.api.department.update(d.department_id, { ...d, active: nextActive })
       await load()
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : 'Update failed')
@@ -109,8 +110,8 @@ export default function DepartmentPage() {
       // 2. Status filter
       const matchesStatus =
         statusFilter === 'ALL' ||
-        (statusFilter === 'ACTIVE' && d.active) ||
-        (statusFilter === 'INACTIVE' && !d.active)
+        (statusFilter === 'ACTIVE' && d.active !== false) ||
+        (statusFilter === 'INACTIVE' && d.active === false)
       return matchesSearch && matchesStatus
     })
     .sort((a, b) => {
@@ -120,7 +121,7 @@ export default function DepartmentPage() {
       return 0
     })
 
-  const activeCount = departments.filter((d) => d.active).length
+  const activeCount = departments.filter((d) => d.active !== false).length
   const inactiveCount = departments.length - activeCount
   const hasActiveFilters = search !== '' || statusFilter !== 'ALL' || sortBy !== 'NAME_ASC'
 
@@ -275,12 +276,12 @@ export default function DepartmentPage() {
                     <button
                       onClick={() => handleToggleActive(d)}
                       className={`flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-full font-medium transition-colors ${
-                        d.active ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                        d.active !== false ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
                       }`}
                       title="Click to toggle status"
                     >
-                      {d.active ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
-                      {d.active ? 'Active' : 'Inactive'}
+                      {d.active !== false ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
+                      {d.active !== false ? 'Active' : 'Inactive'}
                     </button>
                   </td>
                   <td className="px-4 py-3 text-right">

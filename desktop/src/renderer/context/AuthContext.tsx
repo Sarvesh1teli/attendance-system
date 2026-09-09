@@ -50,9 +50,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (username: string, password: string, institutionId?: string) => {
     try {
       if (institutionId) {
-        localStorage.setItem('saas_institute_id', institutionId.trim())
+        localStorage.setItem('saas_institute_id', institutionId.trim().toLowerCase())
       }
-      const result = await window.api.auth.login(username, password)
+      const result = await (window.api.auth as any).login(username, password, institutionId?.trim().toLowerCase())
       if (result.success) {
         await refreshUser()
       }

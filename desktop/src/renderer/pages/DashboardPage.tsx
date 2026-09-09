@@ -21,33 +21,61 @@ export default function DashboardPage() {
     const load = async () => {
       setLoading(true)
       try {
-        const [students, faculty, subjects, inst, sessions, shortageList] = await Promise.all([
+        const [sRes, fRes, subRes, instRes, sessRes] = await Promise.allSettled([
           window.api.student.list(),
           window.api.faculty.list(),
           window.api.subject.list(),
           window.api.institution.get(),
-          window.api.attendance.listSessions({ date: new Date().toISOString().slice(0, 10) }),
-          window.api.report.getShortageReport(undefined, undefined, 75).catch(() => []),
+          window.api.attendance.listSessions(),
         ])
 
-        setInstitutionName(inst?.name ?? '')
+        const students = sRes.status === 'fulfilled' && Array.isArray(sRes.value) ? sRes.value : []
+        const faculty = fRes.status === 'fulfilled' && Array.isArray(fRes.value) ? fRes.value : []
+        const subjects = subRes.status === 'fulfilled' && Array.isArray(subRes.value) ? subRes.value : []
+        const inst = instRes.status === 'fulfilled' ? instRes.value : null
+        const sessions = sessRes.status === 'fulfilled' && Array.isArray(sessRes.value) ? sessRes.value : []
 
-        // Compute average attendance from shortage report
+        const fallbackName = (localStorage.getItem('saas_institute_id') || 'SGJM').toUpperCase()
+        setInstitutionName(inst?.name || fallbackName)
+
+        // Compute average attendance from sessions
         let avgAttendance: number | null = null
-        const summaryList = await window.api.report.getStudentSummary().catch(() => [])
-        if (summaryList.length > 0) {
-          const total = summaryList.reduce((sum: number, r: { attendance_percentage?: number }) => sum + (r.attendance_percentage ?? 0), 0)
-          avgAttendance = Math.round(total / summaryList.length)
+        if (sessions.length > 0) {
+          const valid = sessions.filter((s: any) => (s.total_students || s.totalStudents || 0) > 0)
+          if (valid.length > 0) {
+            const sumPct = valid.reduce((sum: number, s: any) => {
+              const tot = s.total_students || s.totalStudents || 1
+              const pres = s.present_count ?? s.presentCount ?? 0
+              return sum + (pres / tot) * 100
+            }, 0)
+            avgAttendance = Math.round(sumPct / valid.length)
+          }
         }
+
+        const todayStr = new Date().toISOString().slice(0, 10)
+        const todaySessions = sessions.filter((s: any) => {
+          const d = s.session_date || s.sessionDate || ''
+          return d.startsWith(todayStr)
+        })
+
+        let shortageStudents = 0
+        try {
+          if ((window.api as any)?.report?.getShortageReport) {
+            const sl = await (window.api as any).report.getShortageReport(undefined, undefined, 75)
+            shortageStudents = Array.isArray(sl) ? sl.length : 0
+          }
+        } catch {}
 
         setStats({
           students: students.length,
           faculty: faculty.length,
           subjects: subjects.length,
-          sessionsToday: sessions.length,
-          shortageStudents: shortageList.length,
+          sessionsToday: todaySessions.length,
+          shortageStudents,
           avgAttendance,
         })
+      } catch (err) {
+        console.error('Failed to load dashboard stats:', err)
       } finally {
         setLoading(false)
       }
@@ -62,7 +90,7 @@ export default function DashboardPage() {
         <p className="text-muted-foreground text-sm">Welcome to Teli Attendance — {new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
         <StatCard
           icon={<Users className="h-5 w-5" />}
           label="Total Students" value={loading ? '…' : String(stats.students)} color="blue"
@@ -108,7 +136,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="bg-card border rounded-lg p-6">
+      <div className="bg-card border rounded-lg p-4 sm:p-6">
         <h2 className="font-semibold mb-3">Quick Start</h2>
         <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside">
           <li>Set up Departments, Programs, and Batches under <strong>Academic</strong></li>
@@ -131,8 +159,8 @@ function StatCard({ icon, label, value, color }: {
     purple: 'text-purple-500 bg-purple-50', orange: 'text-orange-500 bg-orange-50',
   }
   return (
-    <div className="bg-card border rounded-lg p-4 flex items-center gap-3">
-      <div className={`p-2 rounded-lg ${colorMap[color]}`}>{icon}</div>
+    <div className="min-w-0 bg-card border rounded-lg p-3 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+      <div className={`shrink-0 p-2 rounded-lg ${colorMap[color]}`}>{icon}</div>
       <div>
         <p className="text-xs text-muted-foreground">{label}</p>
         <p className="text-2xl font-bold">{value}</p>

@@ -34,12 +34,17 @@ class FaceRecognitionService {
 
   // ─── Model Loading ─────────────────────────────────────────────────────────
 
-  async loadModels(modelsUrl = '/models'): Promise<void> {
+  async loadModels(modelsUrl?: string): Promise<void> {
     if (this.modelsLoaded) return
+    const url =
+      modelsUrl ||
+      ((import.meta as any).env?.BASE_URL
+        ? `${(import.meta as any).env.BASE_URL.replace(/\/$/, '')}/models`
+        : '/admin/models')
     await Promise.all([
-      faceapi.nets.tinyFaceDetector.loadFromUri(modelsUrl),
-      faceapi.nets.faceLandmark68TinyNet.loadFromUri(modelsUrl),
-      faceapi.nets.faceRecognitionNet.loadFromUri(modelsUrl),
+      faceapi.nets.tinyFaceDetector.loadFromUri(url),
+      faceapi.nets.faceLandmark68TinyNet.loadFromUri(url),
+      faceapi.nets.faceRecognitionNet.loadFromUri(url),
     ])
     this.modelsLoaded = true
   }

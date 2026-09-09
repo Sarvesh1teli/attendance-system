@@ -160,54 +160,54 @@ export default function PwaLoginPage() {
   }, [stopCamera])
 
   return (
-    <div className="min-h-screen max-w-md mx-auto bg-gradient-to-b from-primary/10 via-background to-background p-6 flex flex-col justify-center relative">
+    <div className="min-h-screen sm:h-screen max-w-md mx-auto bg-gradient-to-b from-primary/10 via-background to-background p-4 sm:p-6 flex flex-col justify-center relative sm:overflow-hidden">
       {/* Header */}
-      <div className="text-center mb-6">
-        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/30 mb-3">
-          <GraduationCap className="h-9 w-9" />
+      <div className="text-center mb-3">
+        <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-primary text-primary-foreground shadow-md shadow-primary/30 mb-1.5">
+          <GraduationCap className="h-6 w-6" />
         </div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Teacher Portal</h1>
-        <p className="text-xs text-muted-foreground mt-1">
+        <h1 className="text-xl font-bold tracking-tight text-foreground">Teacher Portal</h1>
+        <p className="text-[11px] text-muted-foreground mt-0.5">
           Multi-Tenant Cloud & Offline Face Recognition System
         </p>
       </div>
 
       {/* Main Card */}
-      <div className="bg-card border rounded-2xl p-6 shadow-sm space-y-5">
+      <div className="bg-card border rounded-2xl p-4 sm:p-5 shadow-sm space-y-3.5">
         {error && (
-          <div className="text-xs bg-destructive/10 text-destructive border border-destructive/20 rounded-lg p-3 flex items-start gap-2">
+          <div className="text-xs bg-destructive/10 text-destructive border border-destructive/20 rounded-lg p-2.5 flex items-start gap-2">
             <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
             <span>{error}</span>
           </div>
         )}
 
         {/* Biometric Face Recognition Login Button */}
-        <div className="space-y-2">
+        <div className="space-y-1">
           <button
             type="button"
             onClick={startFaceLogin}
-            className="w-full relative group overflow-hidden bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-700 hover:to-cyan-700 text-white font-semibold py-3 px-4 rounded-xl text-sm shadow-md transition-all flex items-center justify-center gap-2.5 active:scale-[0.98]"
+            className="w-full relative group overflow-hidden bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-700 hover:to-cyan-700 text-white font-semibold py-2.5 px-4 rounded-xl text-sm shadow-md transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
           >
-            <Camera className="h-5 w-5 animate-pulse" />
+            <Camera className="h-4 w-4 animate-pulse" />
             <span>Login with Face Recognition</span>
           </button>
-          <p className="text-[11px] text-center text-muted-foreground">
+          <p className="text-[10px] text-center text-muted-foreground">
             Instant biometric verification using device camera
           </p>
         </div>
 
-        <div className="relative flex items-center justify-center">
+        <div className="relative flex items-center justify-center my-1">
           <div className="border-t border-border w-full" />
-          <span className="bg-card px-3 text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-            or use credentials
+          <span className="bg-card px-2.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+            or credentials
           </span>
           <div className="border-t border-border w-full" />
         </div>
 
         {/* Credentials Form */}
-        <form onSubmit={handlePasswordSubmit} className="space-y-3.5">
+        <form onSubmit={handlePasswordSubmit} className="space-y-2.5">
           <div>
-            <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+            <label className="block text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
               Institute / College ID
             </label>
             <div className="relative">
@@ -219,14 +219,14 @@ export default function PwaLoginPage() {
                 required
                 value={institutionId}
                 onChange={(e) => setInstitutionId(e.target.value)}
-                placeholder="e.g. oxford, mit"
-                className="w-full pl-9 pr-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+                placeholder="e.g. sgjm"
+                className="w-full pl-9 pr-3 py-1.5 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+            <label className="block text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
               Teacher ID or Username
             </label>
             <div className="relative">
@@ -239,13 +239,13 @@ export default function PwaLoginPage() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="e.g. FAC001 or username"
-                className="w-full pl-9 pr-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full pl-9 pr-3 py-1.5 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+            <label className="block text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
               Password or PIN
             </label>
             <div className="relative">
@@ -258,7 +258,7 @@ export default function PwaLoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full pl-9 pr-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full pl-9 pr-3 py-1.5 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
           </div>
@@ -266,7 +266,7 @@ export default function PwaLoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-2.5 rounded-lg text-sm shadow transition-all disabled:opacity-50 mt-2"
+            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-2 rounded-lg text-sm shadow transition-all disabled:opacity-50 mt-1"
           >
             {loading ? 'Authenticating...' : 'Sign In with Password'}
           </button>
