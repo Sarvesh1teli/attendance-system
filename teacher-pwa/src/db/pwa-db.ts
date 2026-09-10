@@ -30,6 +30,35 @@ export interface AssignedClass {
   room?: string
 }
 
+export function isClassAssignedToTeacher(
+  cls: { faculty_id?: string; employee_id?: string; faculty_name?: string },
+  teacher?: { id?: string; employee_id?: string; name?: string } | null
+): boolean {
+  if (!teacher) return true
+  const teacherId = (teacher.id || '').trim().toLowerCase()
+  const teacherEmp = (teacher.employee_id || '').trim().toLowerCase()
+  const teacherName = (teacher.name || '').trim().toLowerCase()
+
+  const facId = (cls.faculty_id || '').trim().toLowerCase()
+  const facEmp = (cls.employee_id || '').trim().toLowerCase()
+  const facName = (cls.faculty_name || '').trim().toLowerCase()
+
+  // Direct match by ID
+  if (facId && teacherId && facId === teacherId) return true
+  // Match by employee ID
+  if (facEmp && teacherEmp && facEmp === teacherEmp) return true
+  if (facId && teacherEmp && facId === teacherEmp) return true
+  if (facEmp && teacherId && facEmp === teacherId) return true
+  // Match by faculty name
+  if (facName && teacherName) {
+    const cleanFac = facName.replace(/^dr\.?\s*/i, '').trim()
+    const cleanTeacher = teacherName.replace(/^dr\.?\s*/i, '').trim()
+    if (facName === teacherName || cleanFac === cleanTeacher) return true
+  }
+
+  return false
+}
+
 export interface CachedStudent {
   id: string
   class_id: string
@@ -38,7 +67,7 @@ export interface CachedStudent {
   admission_number: string
   gender?: string
   face_enrolled: boolean
-  face_descriptor?: number[]
+  face_descriptor?: number[] | number[][]
   photo_url?: string
 }
 

@@ -3,8 +3,10 @@ import {
   pwaFaceRecognitionService,
   PwaMatchResult,
 } from '../../services/PwaFaceRecognitionService'
-import { CachedStudent, db } from '../../db/pwa-db'
-import * as faceapi from '@vladmandic/face-api'
+import { pwaFaceSettings } from '../../services/PwaFaceSettings'
+import { livenessDetector } from '../../services/LivenessDetector'
+import { temporalMatcher, TemporalMatchResult } from '../../services/TemporalMatcher'
+import { CachedStudent } from '../../db/pwa-db'
 import {
   Camera,
   RefreshCw,
@@ -53,16 +55,19 @@ export function PwaFaceScanner({
     Array<{ id: string; name: string; time: string; confidence: number }>
   >([])
   const [enrolledCount, setEnrolledCount] = useState(0)
+  const [qualityBreakdown, setQualityBreakdown] = useState<{ high: number; low: number } | null>(null)
   const [statusBanner, setStatusBanner] = useState<{
     name: string
     type: 'JUST_MARKED' | 'ALREADY_MARKED' | 'NOT_RECOGNIZED' | 'NO_ENROLLMENT'
     confidence?: number
     time: number
   } | null>(null)
+  const [hasActiveFace, setHasActiveFace] = useState(false)
 
   const audioCtxRef = useRef<AudioContext | null>(null)
   const localMarkedRef = useRef<Set<string>>(new Set())
   const lastWarningBeepRef = useRef<number>(0)
+  const unrecognizedCountRef = useRef<number>(0)
 
   // Initialize and unlock AudioContext immediately so browser doesn't block sound
   const initAudioContext = useCallback(() => {
@@ -195,8 +200,23 @@ export function PwaFaceScanner({
         await pwaFaceRecognitionService.loadModels('/models')
         if (!isMounted) return
 
-        const count = pwaFaceRecognitionService.buildMatcher(students, 0.40)
+        const count = pwaFaceRecognitionService.buildMatcher(students, pwaFaceSettings.getMatchThreshold())
         setEnrolledCount(count)
+
+        // Compute quality breakdown: multi-descriptor students are higher quality
+        let high = 0
+        let low = 0
+        for (const s of students) {
+          if (!s.face_descriptor) continue
+          if (Array.isArray(s.face_descriptor) && s.face_descriptor.length === 128 && typeof s.face_descriptor[0] === 'number') {
+            low++ // Single descriptor
+          } else if (Array.isArray(s.face_descriptor) && s.face_descriptor.length > 0 && Array.isArray((s.face_descriptor as number[][])[0])) {
+            high++ // Multiple descriptors
+          } else {
+            low++
+          }
+        }
+        setQualityBreakdown({ high, low })
         setLoadingModels(false)
       } catch (err) {
         if (!isMounted) return
@@ -255,13 +275,16 @@ export function PwaFaceScanner({
     }
   }, [loadingModels, modelError, cameraFacing])
 
-  // 3. Live Recognition Loop
+  // 3. Live Recognition Loop with Temporal Smoothing (single inference pass)
   useEffect(() => {
     if (loadingModels || modelError) return
 
     let isScanning = true
     let lastDetectionTime = 0
     let activeBox: { box: { x: number; y: number; width: number; height: number }; match: PwaMatchResult; time: number } | null = null
+
+    livenessDetector.reset()
+    temporalMatcher.reset()
 
     const runRecognitionLoop = async () => {
       if (!isScanning) return
@@ -277,14 +300,44 @@ export function PwaFaceScanner({
 
         try {
           const match: PwaMatchResult | null =
-            await pwaFaceRecognitionService.detectAndMatch(videoRef.current, 0.40)
+            await pwaFaceRecognitionService.detectAndMatch(videoRef.current, pwaFaceSettings.getMatchThreshold())
 
           if (match && match.box) {
             activeBox = { box: match.box, match, time: now }
-          } else if (activeBox && now - activeBox.time > 450) {
+            setHasActiveFace(true)
+          } else if (activeBox && now - activeBox.time > 600) {
             activeBox = null
+            setHasActiveFace(false)
+            unrecognizedCountRef.current = 0
           }
 
+          // --- Temporal Smoothing (always fed when there is a match) ----------
+          let temporalResult: TemporalMatchResult | null = null
+          if (match && match.matched && match.studentId) {
+            temporalResult = temporalMatcher.processFrame({
+              matched: true,
+              studentId: match.studentId,
+              studentName: match.studentName,
+              confidence: match.confidence,
+              box: match.box,
+            })
+          } else {
+            temporalMatcher.processFrame(null)
+          }
+
+          // --- Non-blocking Liveness (reuses the SAME detection pass) ---------
+          // Reports blink/motion status for the UI hint. It does NOT gate the
+          // marking — a student sitting still will still be marked via temporal
+          // smoothing, while liveness is captured opportunistically.
+          if (pwaFaceSettings.isLivenessEnabled() && match && match.rawDetection) {
+            livenessDetector.processFrame(
+              match.rawDetection as never,
+              videoRef.current!.videoWidth || 640,
+              videoRef.current!.videoHeight || 480
+            )
+          }
+
+          // --- Canvas Drawing -------------------------------------------------
           const canvas = canvasRef.current
           const video = videoRef.current
 
@@ -324,48 +377,40 @@ export function PwaFaceScanner({
                     time: Date.now(),
                   })
                 } else if (currentMatch.matched && currentMatch.studentId && currentMatch.studentName) {
+                  unrecognizedCountRef.current = 0
                   const isAlreadyPresent =
                     alreadyPresentIds.has(currentMatch.studentId) ||
                     localMarkedRef.current.has(currentMatch.studentId)
 
-                  const themeColor = isAlreadyPresent ? '#2563eb' : '#10b981'
+                  const isConfirmed = temporalResult?.confirmed ?? false
+                  const themeColor = isAlreadyPresent ? '#2563eb' : isConfirmed ? '#10b981' : '#f59e0b'
 
                   // Draw bounding box
                   ctx.strokeStyle = themeColor
-                  ctx.lineWidth = 4
+                  ctx.lineWidth = isConfirmed ? 4 : 3
+                  if (!isConfirmed) ctx.setLineDash([6, 3])
                   ctx.strokeRect(drawX, y, width, height)
+                  ctx.setLineDash([])
 
                   // Draw label background
                   ctx.fillStyle = themeColor
+                  const sightingsText = temporalResult
+                    ? ` (${temporalResult.sightings}/${temporalResult.requiredSightings})`
+                    : ''
                   const label = isAlreadyPresent
-                    ? `✓ ${currentMatch.studentName} (Already Marked)`
-                    : `✓ ${currentMatch.studentName} (${Math.round(currentMatch.confidence * 100)}%)`
+                    ? `✓ ${currentMatch.studentName} (Present)`
+                    : isConfirmed
+                    ? `✓ ${currentMatch.studentName} (${Math.round(currentMatch.confidence * 100)}%)`
+                    : `⏳ ${currentMatch.studentName}...${sightingsText}`
                   ctx.font = 'bold 15px sans-serif'
                   const textWidth = ctx.measureText(label).width
                   ctx.fillRect(drawX, Math.max(0, y - 30), textWidth + 18, 30)
 
-                  // Draw label text (always normal left-to-right)
+                  // Draw label text
                   ctx.fillStyle = '#ffffff'
                   ctx.fillText(label, drawX + 8, Math.max(20, y - 9))
 
-                  // Always update recognized students feed so teacher sees verification (keep last 5)
-                  setRecognizedStudents((prev) => {
-                    const filtered = prev.filter((p) => p.id !== currentMatch.studentId)
-                    return [
-                      {
-                        id: currentMatch.studentId!,
-                        name: currentMatch.studentName!,
-                        time: new Date().toLocaleTimeString([], {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          second: '2-digit',
-                        }),
-                        confidence: Math.round(currentMatch.confidence * 100),
-                      },
-                      ...filtered.slice(0, 4),
-                    ]
-                  })
-
+                  // Mark ONLY when confirmed by temporal smoothing
                   if (isAlreadyPresent) {
                     playBeep('ALREADY')
                     setStatusBanner({
@@ -373,8 +418,9 @@ export function PwaFaceScanner({
                       type: 'ALREADY_MARKED',
                       time: Date.now(),
                     })
-                  } else {
+                  } else if (isConfirmed && !localMarkedRef.current.has(currentMatch.studentId)) {
                     localMarkedRef.current.add(currentMatch.studentId)
+                    temporalMatcher.clearStudent(currentMatch.studentId)
                     playBeep('SUCCESS')
                     onRecognized(currentMatch.studentId, currentMatch.confidence)
 
@@ -384,37 +430,76 @@ export function PwaFaceScanner({
                       confidence: Math.round(currentMatch.confidence * 100),
                       time: Date.now(),
                     })
+
+                    // Add to recent feed ONLY on actual confirmation/mark
+                    setRecognizedStudents((prev) => {
+                      const filtered = prev.filter((p) => p.id !== currentMatch.studentId)
+                      return [
+                        {
+                          id: currentMatch.studentId!,
+                          name: currentMatch.studentName!,
+                          time: new Date().toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit',
+                          }),
+                          confidence: Math.round(currentMatch.confidence * 100),
+                        },
+                        ...filtered.slice(0, 4),
+                      ]
+                    })
                   }
                 } else {
-                  // Face detected but not matched
-                  ctx.strokeStyle = '#ef4444'
-                  ctx.lineWidth = 4
-                  ctx.setLineDash([8, 4])
-                  ctx.strokeRect(drawX, y, width, height)
-                  ctx.setLineDash([])
+                  // Face detected but not matched in current frame
+                  unrecognizedCountRef.current++
 
-                  ctx.fillStyle = '#ef4444'
-                  const label = '❌ Face Not Recognized'
-                  ctx.font = 'bold 15px sans-serif'
-                  const textWidth = ctx.measureText(label).width
-                  ctx.fillRect(drawX, Math.max(0, y - 30), textWidth + 18, 30)
+                  if (unrecognizedCountRef.current < 3) {
+                    // Frame 1-2: Camera focusing / student moving into frame - show cyan analyzing box
+                    ctx.strokeStyle = '#0284c7'
+                    ctx.lineWidth = 3
+                    ctx.setLineDash([6, 3])
+                    ctx.strokeRect(drawX, y, width, height)
+                    ctx.setLineDash([])
 
-                  ctx.fillStyle = '#ffffff'
-                  ctx.fillText(label, drawX + 8, Math.max(20, y - 9))
+                    ctx.fillStyle = '#0284c7'
+                    const label = '🔍 Identifying...'
+                    ctx.font = 'bold 14px sans-serif'
+                    const textWidth = ctx.measureText(label).width
+                    ctx.fillRect(drawX, Math.max(0, y - 28), textWidth + 16, 28)
 
-                  playWarningBeep()
+                    ctx.fillStyle = '#ffffff'
+                    ctx.fillText(label, drawX + 8, Math.max(20, y - 9))
+                  } else {
+                    // Persistent unrecognized face (after 3 consecutive attempts)
+                    ctx.strokeStyle = '#ef4444'
+                    ctx.lineWidth = 4
+                    ctx.setLineDash([8, 4])
+                    ctx.strokeRect(drawX, y, width, height)
+                    ctx.setLineDash([])
 
-                  setStatusBanner({
-                    name: 'Unknown',
-                    type: 'NOT_RECOGNIZED',
-                    time: Date.now(),
-                  })
+                    ctx.fillStyle = '#ef4444'
+                    const label = '❌ Face Not Recognized'
+                    ctx.font = 'bold 15px sans-serif'
+                    const textWidth = ctx.measureText(label).width
+                    ctx.fillRect(drawX, Math.max(0, y - 30), textWidth + 18, 30)
+
+                    ctx.fillStyle = '#ffffff'
+                    ctx.fillText(label, drawX + 8, Math.max(20, y - 9))
+
+                    playWarningBeep()
+
+                    setStatusBanner({
+                      name: 'Unknown',
+                      type: 'NOT_RECOGNIZED',
+                      time: Date.now(),
+                    })
+                  }
                 }
               }
             }
           }
-        } catch {
-          // Frame match skipped
+        } catch (err) {
+          console.warn('[FaceScanner] Frame match error:', err)
         }
       }
 
@@ -427,6 +512,8 @@ export function PwaFaceScanner({
 
     return () => {
       isScanning = false
+      livenessDetector.reset()
+      temporalMatcher.reset()
       if (animFrameIdRef.current) {
         cancelAnimationFrame(animFrameIdRef.current)
       }
@@ -456,6 +543,9 @@ export function PwaFaceScanner({
               ) : (
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-semibold border border-blue-500/30">
                   {enrolledCount} enrolled
+                  {qualityBreakdown && qualityBreakdown.high > 0 && (
+                    <span className="text-emerald-300 ml-1">({qualityBreakdown.high} multi-angle)</span>
+                  )}
                 </span>
               )}
             </div>
@@ -551,19 +641,27 @@ export function PwaFaceScanner({
               className="absolute inset-0 w-full h-full pointer-events-none"
             />
 
-            {/* Viewfinder Reticle Guide */}
-            <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-              <div className="w-64 h-64 sm:w-80 sm:h-80 border-2 border-white/20 rounded-3xl relative">
-                {/* 4 Corner Brackets */}
-                <div className="absolute -top-1 -left-1 w-8 h-8 border-t-4 border-l-4 border-blue-400 rounded-tl-xl" />
-                <div className="absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 border-blue-400 rounded-tr-xl" />
-                <div className="absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 border-blue-400 rounded-bl-xl" />
-                <div className="absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 border-blue-400 rounded-br-xl" />
+              {/* Viewfinder Reticle Guide - seamlessly fades out when face is detected to eliminate double-box clutter */}
+              <div className={`absolute inset-0 pointer-events-none flex items-center justify-center transition-all duration-300 ${hasActiveFace ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}`}>
+                <div className="w-64 h-64 sm:w-80 sm:h-80 border-2 border-white/20 rounded-3xl relative">
+                  {/* 4 Corner Brackets */}
+                  <div className="absolute -top-1 -left-1 w-8 h-8 border-t-4 border-l-4 border-blue-400 rounded-tl-xl" />
+                  <div className="absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 border-blue-400 rounded-tr-xl" />
+                  <div className="absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 border-blue-400 rounded-bl-xl" />
+                  <div className="absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 border-blue-400 rounded-br-xl" />
 
-                {/* Subtle animated scanning pulse bar */}
-                <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-blue-400 to-transparent opacity-60 animate-pulse absolute top-1/2 -translate-y-1/2" />
+                  {/* Subtle animated scanning pulse bar */}
+                  <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-blue-400 to-transparent opacity-60 animate-pulse absolute top-1/2 -translate-y-1/2" />
+                </div>
               </div>
-            </div>
+
+              {/* Liveness Status Indicator */}
+              {pwaFaceSettings.isLivenessEnabled() && (
+                <div className="absolute bottom-14 left-3 bg-black/60 backdrop-blur-sm text-white/80 px-2.5 py-1 rounded-lg text-[10px] font-mono border border-white/10 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Liveness: Blink or move to confirm
+                </div>
+              )}
 
             {/* Live Status Overlay Banner */}
             {statusBanner && Date.now() - statusBanner.time < 3500 ? (

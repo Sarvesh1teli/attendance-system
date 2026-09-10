@@ -204,6 +204,8 @@ const api: IpcApi = {
 
   // Face Recognition
   faceRecognition: {
+    getSettings: () =>
+      ipcRenderer.invoke('faceRecognition:getSettings'),
     getSessionStudents: (sessionId: string) =>
       ipcRenderer.invoke('faceRecognition:getSessionStudents', sessionId),
     markRecognized: (recordId: string, confidence: number) =>

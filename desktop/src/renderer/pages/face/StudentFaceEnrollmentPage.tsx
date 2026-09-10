@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Camera, User, CheckCircle, RefreshCw, X, ShieldAlert, ShieldCheck, Filter, RotateCcw, Search } from 'lucide-react'
-import { CameraCapture, SampleType } from '../../components/face/CameraCapture'
+import { Camera, User, CheckCircle, RefreshCw, X, ShieldAlert, ShieldCheck, Filter, RotateCcw, Search, ChevronLeft, ChevronRight } from 'lucide-react'
+import { CameraCapture, SampleType, QualityScore } from '../../components/face/CameraCapture'
 import { EnrollmentStatusBadge } from '../../components/face/EnrollmentStatus'
 import type { Student, Batch, FaceEnrollment, FaceSample } from '../../../main/ipc/types'
 import { faceRecognitionService } from '../../services/FaceRecognitionService'
@@ -13,6 +13,8 @@ export default function StudentFaceEnrollmentPage() {
   const [search, setSearch] = useState('')
   const [filterBatch, setFilterBatch] = useState('')
   const [filterFaceStatus, setFilterFaceStatus] = useState<'ALL' | 'ENROLLED' | 'PENDING'>('ALL')
+  const [page, setPage] = useState(1)
+  const pageSize = 10
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
   const [currentEnrollment, setCurrentEnrollment] = useState<FaceEnrollment | null>(null)
   const [samples, setSamples] = useState<FaceSample[]>([])
@@ -20,6 +22,7 @@ export default function StudentFaceEnrollmentPage() {
   const [enrollmentComplete, setEnrollmentComplete] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [sampleQualities, setSampleQualities] = useState<Record<string, QualityScore>>({})
 
   const loadData = async () => {
     setLoading(true)
@@ -73,10 +76,16 @@ export default function StudentFaceEnrollmentPage() {
   const handleSampleCaptured = async (
     sampleType: SampleType,
     imageBase64: string,
-    descriptorJson?: string | null
+    descriptorJson?: string | null,
+    quality?: QualityScore
   ) => {
     if (!currentEnrollment) return
     setErrorMessage(null)
+
+    // Store quality score for display
+    if (quality) {
+      setSampleQualities(prev => ({ ...prev, [sampleType]: quality }))
+    }
 
     try {
       const newSample = await window.api.faceEnrollment.saveSample(
@@ -205,6 +214,11 @@ export default function StudentFaceEnrollmentPage() {
     })
   }, [students, search, filterBatch, filterFaceStatus])
 
+  const totalPages = Math.max(1, Math.ceil(filteredStudents.length / pageSize))
+  const paginatedStudents = useMemo(() => {
+    return filteredStudents.slice((page - 1) * pageSize, page * pageSize)
+  }, [filteredStudents, page, pageSize])
+
   const totalCount = students.length
   const enrolledCount = students.filter((s) => s.face_enrolled || (s as any).faceEnrolled).length
   const pendingCount = totalCount - enrolledCount
@@ -213,6 +227,7 @@ export default function StudentFaceEnrollmentPage() {
     setSearch('')
     setFilterBatch('')
     setFilterFaceStatus('ALL')
+    setPage(1)
   }
 
   return (
@@ -267,7 +282,7 @@ export default function StudentFaceEnrollmentPage() {
               type="text"
               placeholder="Search by name or admission no..."
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => { setSearch(e.target.value); setPage(1) }}
               className="w-full pl-9 pr-3.5 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </div>
@@ -276,7 +291,7 @@ export default function StudentFaceEnrollmentPage() {
           <div>
             <select
               value={filterBatch}
-              onChange={(e) => setFilterBatch(e.target.value)}
+              onChange={(e) => { setFilterBatch(e.target.value); setPage(1) }}
               className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary"
             >
               <option value="">All Batches ({batches.length})</option>
@@ -292,7 +307,7 @@ export default function StudentFaceEnrollmentPage() {
           <div>
             <select
               value={filterFaceStatus}
-              onChange={(e) => setFilterFaceStatus(e.target.value as any)}
+              onChange={(e) => { setFilterFaceStatus(e.target.value as any); setPage(1) }}
               className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary"
             >
               <option value="ALL">All Face Status ({totalCount})</option>
@@ -331,7 +346,7 @@ export default function StudentFaceEnrollmentPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {filteredStudents.map((s) => {
+                {paginatedStudents.map((s) => {
                   const sBatchId = s.batch_id || (s as any).batchId || ''
                   const batchName = batchMap.get(sBatchId) || sBatchId || '—'
                   const admNo = (s as any).admission_number || (s as any).admissionNumber || '—'
@@ -404,6 +419,31 @@ export default function StudentFaceEnrollmentPage() {
                 })}
               </tbody>
             </table>
+
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-6 py-3.5 border-t text-sm bg-muted/20">
+                <span className="text-xs text-muted-foreground">
+                  Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, filteredStudents.length)} of {filteredStudents.length} students
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="p-1.5 rounded border text-xs disabled:opacity-40 hover:bg-muted"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <span className="px-2 text-xs font-medium">Page {page} of {totalPages}</span>
+                  <button
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages}
+                    className="p-1.5 rounded border text-xs disabled:opacity-40 hover:bg-muted"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -462,19 +502,28 @@ export default function StudentFaceEnrollmentPage() {
                     {(['FRONT', 'LEFT', 'RIGHT'] as SampleType[]).map((type, idx) => {
                       const isDone = samples.some((s) => s.sample_type === type)
                       const isCurrent = currentStep === type && !isDone
+                      const quality = sampleQualities[type]
                       return (
-                        <div
-                          key={type}
-                          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-medium border transition-all ${
-                            isDone
-                              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600'
-                              : isCurrent
-                              ? 'bg-primary border-primary text-primary-foreground shadow-sm'
-                              : 'bg-muted border-border text-muted-foreground'
-                          }`}
-                        >
-                          <span>{idx + 1}. {type}</span>
-                          {isDone && <CheckCircle className="h-3 w-3" />}
+                        <div key={type} className="flex flex-col items-center gap-1">
+                          <div
+                            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                              isDone
+                                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600'
+                                : isCurrent
+                                ? 'bg-primary border-primary text-primary-foreground shadow-sm'
+                                : 'bg-muted border-border text-muted-foreground'
+                            }`}
+                          >
+                            <span>{idx + 1}. {type}</span>
+                            {isDone && <CheckCircle className="h-3 w-3" />}
+                          </div>
+                          {isDone && quality && (
+                            <span className={`text-[9px] font-semibold ${
+                              quality.label === 'GOOD' ? 'text-emerald-500' : quality.label === 'FAIR' ? 'text-amber-500' : 'text-red-500'
+                            }`}>
+                              {quality.label} ({quality.score})
+                            </span>
+                          )}
                         </div>
                       )
                     })}

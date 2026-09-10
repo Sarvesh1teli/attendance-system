@@ -69,10 +69,9 @@ export class DesktopSyncService {
         .prepare('SELECT topic_id as id, subject_id as subjectId, topic_name as topicName, unit_name as unitName, sequence_number as sequenceNumber FROM topic WHERE institution_id = ?')
         .all(instId)
 
-      // 2. Gather students (MINIMAL - NO BIOMETRIC PHOTOS - ONLY 128-D VECTOR IF ENROLLED)
+      // 2. Gather students (MINIMAL - NO BIOMETRIC PHOTOS - 128-D VECTORS IF ENROLLED)
+      // face_descriptor is stored as a JSON array of descriptors (one per enrolled angle).
       // Only ACTIVE and REPEATER students are synced to cloud/Teacher App.
-      // FAILED, LEFT, DISCONTINUED, TRANSFERRED students are excluded from future rosters
-      // but their historical attendance_record rows remain intact in both databases.
       const students = this.db
         .prepare(`
           SELECT

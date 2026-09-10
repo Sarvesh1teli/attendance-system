@@ -33,7 +33,7 @@ export default function PwaLoginPage() {
     try {
       const res = await login(username, password, institutionId)
       if (res.success) {
-        navigate('/schedule')
+        navigate('/')
       } else {
         setError(res.error || 'Login failed')
       }
@@ -119,7 +119,7 @@ export default function PwaLoginPage() {
               stopCamera()
               setTimeout(() => {
                 setIsFaceModalOpen(false)
-                navigate('/schedule')
+                navigate('/')
               }, 1200)
             } else {
               setFaceStatus('ERROR')

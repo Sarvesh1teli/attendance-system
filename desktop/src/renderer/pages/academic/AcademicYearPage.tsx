@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Pencil, CalendarDays, Star } from 'lucide-react'
+import { Plus, Pencil, CalendarDays, Star, Search, RotateCcw } from 'lucide-react'
 import type { AcademicYear, CreateAcademicYearInput } from '@main/ipc/types'
 
 export default function AcademicYearPage() {
@@ -7,6 +7,7 @@ export default function AcademicYearPage() {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<AcademicYear | null>(null)
+  const [search, setSearch] = useState('')
   const [form, setForm] = useState({ year_label: '', start_date: '', end_date: '', is_current: false })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -54,16 +55,64 @@ export default function AcademicYearPage() {
     } finally { setSaving(false) }
   }
 
+  const [filterYear, setFilterYear] = useState('')
+
+  const yearOptions = Array.from(
+    new Set(
+      years.flatMap((y) => {
+        const matches = y.year_label.match(/\d{4}/g)
+        return matches || []
+      })
+    )
+  ).sort()
+
+  const filteredYears = years.filter(y => {
+    const q = search.trim().toLowerCase()
+    const matchSearch = !q || y.year_label.toLowerCase().includes(q) || y.start_date.includes(q) || y.end_date.includes(q)
+    const matchYear = !filterYear || y.year_label.includes(filterYear)
+    return matchSearch && matchYear
+  })
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Academic Years</h1>
-          <p className="text-muted-foreground text-sm">Manage academic years and semesters</p>
+      {/* Search, Year Filter, and Add Year in same row */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-1 flex-wrap items-center gap-3 min-w-[240px]">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <input
+              type="text"
+              className="w-full border rounded-md pl-9 pr-3 py-2 text-sm bg-background"
+              placeholder="Search academic year (e.g. 2026)..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
+          <select
+            className="border rounded-md px-3 py-2 text-sm bg-background"
+            value={filterYear}
+            onChange={(e) => setFilterYear(e.target.value)}
+          >
+            <option value="">All Years</option>
+            {yearOptions.map((y) => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+
+          {(search || filterYear) && (
+            <button
+              onClick={() => { setSearch(''); setFilterYear('') }}
+              className="text-xs text-primary hover:underline flex items-center gap-1"
+            >
+              <RotateCcw className="h-3 w-3" /> Reset
+            </button>
+          )}
         </div>
+
         <button
           onClick={openCreate}
-          className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90"
+          className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 whitespace-nowrap"
         >
           <Plus className="h-4 w-4" /> Add Year
         </button>
@@ -109,10 +158,12 @@ export default function AcademicYearPage() {
       <div className="bg-card border rounded-lg overflow-hidden">
         {loading ? (
           <div className="p-8 text-center text-muted-foreground text-sm">Loading…</div>
-        ) : years.length === 0 ? (
+        ) : filteredYears.length === 0 ? (
           <div className="p-8 text-center">
             <CalendarDays className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
-            <p className="text-muted-foreground text-sm">No academic years yet.</p>
+            <p className="text-muted-foreground text-sm">
+              {search ? 'No academic years match your filter.' : 'No academic years yet.'}
+            </p>
           </div>
         ) : (
           <table className="w-full text-sm">
@@ -126,7 +177,7 @@ export default function AcademicYearPage() {
               </tr>
             </thead>
             <tbody>
-              {years.map((y, i) => (
+              {filteredYears.map((y, i) => (
                 <tr key={y.academic_year_id} className={i % 2 === 0 ? '' : 'bg-muted/10'}>
                   <td className="px-4 py-3 font-medium flex items-center gap-2">
                     {y.is_current && <Star className="h-3.5 w-3.5 text-yellow-500 fill-yellow-500" />}

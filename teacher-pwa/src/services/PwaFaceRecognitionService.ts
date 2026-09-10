@@ -20,6 +20,9 @@ export interface PwaMatchResult {
   confidence: number
   box: { x: number; y: number; width: number; height: number }
   noEnrollment?: boolean
+  /** Raw face-api detection (with landmarks + descriptor). Reused by liveness
+   *  detection so the scanner does NOT run a second inference pass. */
+  rawDetection?: unknown
 }
 
 class PwaFaceRecognitionService {
@@ -41,14 +44,32 @@ class PwaFaceRecognitionService {
     return this.modelsLoaded
   }
 
-  buildMatcher(students: CachedStudent[], threshold = 0.40): number {
+  buildMatcher(students: CachedStudent[], threshold = 0.52): number {
     const labeled: faceapi.LabeledFaceDescriptors[] = []
     this.studentNameMap.clear()
 
     for (const s of students) {
-      if (s.face_descriptor && Array.isArray(s.face_descriptor) && s.face_descriptor.length === 128) {
-        const floatArr = new Float32Array(s.face_descriptor)
-        labeled.push(new faceapi.LabeledFaceDescriptors(s.student_id, [floatArr]))
+      if (!s.face_descriptor) continue
+
+      const descriptors: Float32Array[] = []
+
+      // Handle both single descriptor (number[]) and multi-descriptor (number[][])
+      if (Array.isArray(s.face_descriptor)) {
+        if (s.face_descriptor.length === 128 && typeof s.face_descriptor[0] === 'number') {
+          // Single descriptor: number[] (128 floats)
+          descriptors.push(new Float32Array(s.face_descriptor as number[]))
+        } else if (s.face_descriptor.length > 0 && Array.isArray(s.face_descriptor[0])) {
+          // Multiple descriptors: number[][] (array of 128-float arrays)
+          for (const desc of s.face_descriptor as number[][]) {
+            if (Array.isArray(desc) && desc.length === 128) {
+              descriptors.push(new Float32Array(desc))
+            }
+          }
+        }
+      }
+
+      if (descriptors.length > 0) {
+        labeled.push(new faceapi.LabeledFaceDescriptors(s.student_id, descriptors))
         this.studentNameMap.set(s.student_id, s.name)
       }
     }
@@ -64,11 +85,11 @@ class PwaFaceRecognitionService {
 
   async detectAndMatch(
     video: HTMLVideoElement,
-    threshold = 0.40
+    threshold = 0.52
   ): Promise<PwaMatchResult | null> {
-    // Ultra-fast TinyFaceDetector configuration (224px input size for instant 30-50ms scans)
+    // Fast & accurate detection: 320px input size for high mobile FPS & low latency
     const detectorOptions = new faceapi.TinyFaceDetectorOptions({
-      inputSize: 224,
+      inputSize: 320,
       scoreThreshold: 0.35,
     })
 
@@ -105,6 +126,7 @@ class PwaFaceRecognitionService {
         distance: best.distance,
         confidence: Math.max(0, Math.min(1, 1 - best.distance)),
         box: { x, y, width, height },
+        rawDetection: detection,
       }
     }
 
@@ -114,12 +136,13 @@ class PwaFaceRecognitionService {
       distance: best.distance,
       confidence: Math.max(0, Math.min(1, 1 - best.distance)),
       box: { x, y, width, height },
+      rawDetection: detection,
     }
   }
 
   async extractDescriptor(video: HTMLVideoElement): Promise<number[] | null> {
     const detectorOptions = new faceapi.TinyFaceDetectorOptions({
-      inputSize: 224,
+      inputSize: 320,
       scoreThreshold: 0.35,
     })
     const detection = await faceapi

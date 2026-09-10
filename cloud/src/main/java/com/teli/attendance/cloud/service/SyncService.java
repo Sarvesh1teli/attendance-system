@@ -92,23 +92,15 @@ public class SyncService {
 
             if (existingOpt.isPresent()) {
                 CloudAttendanceSession existing = existingOpt.get();
-                if (incomingVer <= existing.getVersion()) {
-                    // Check if identical content (idempotent retry) or divergent
-                    if (!Objects.equals(sDto.getStatus(), existing.getStatus()) ||
-                        !Objects.equals(sDto.getTopicId(), existing.getTopicId())) {
-                        // Divergent version conflict!
-                        conflictsCount++;
-                        logConflict(instId, "ATTENDANCE_SESSION", sDto.getSessionId(), incomingVer,
-                                existing.getVersion(), sDto, existing);
-                    }
-                    // Retain stored version
-                } else {
-                    // Incoming is newer
-                    existing.setStatus(sDto.getStatus());
-                    existing.setEndTime(sDto.getEndTime());
-                    existing.setTopicId(sDto.getTopicId());
-                    existing.setCustomTopic(sDto.getCustomTopic());
-                    existing.setVersion(incomingVer);
+                // Always accept updates if incoming is COMPLETED or if version is newer, or if existing was OPEN
+                if ("COMPLETED".equalsIgnoreCase(sDto.getStatus()) ||
+                    "OPEN".equalsIgnoreCase(existing.getStatus()) ||
+                    incomingVer >= existing.getVersion()) {
+                    if (sDto.getStatus() != null) existing.setStatus(sDto.getStatus());
+                    if (sDto.getEndTime() != null) existing.setEndTime(sDto.getEndTime());
+                    if (sDto.getTopicId() != null) existing.setTopicId(sDto.getTopicId());
+                    if (sDto.getCustomTopic() != null) existing.setCustomTopic(sDto.getCustomTopic());
+                    existing.setVersion(Math.max(existing.getVersion(), incomingVer) + 1);
                     existing.setUpdatedAt(Instant.now());
                     sessionRepo.save(existing);
                 }
@@ -150,14 +142,15 @@ public class SyncService {
 
                 if (existingRecOpt.isPresent()) {
                     CloudAttendanceRecord existingRec = existingRecOpt.get();
-                    if (recVer > existingRec.getVersion()) {
-                        existingRec.setStatus(rDto.getStatus());
-                        existingRec.setRecognitionMethod(rDto.getRecognitionMethod());
-                        existingRec.setRecordState(effectiveRecordState);
-                        existingRec.setVersion(recVer);
-                        existingRec.setUpdatedAt(Instant.now());
-                        recordRepo.save(existingRec);
-                    }
+                    // Always accept teacher's updated attendance status (e.g. ABSENT, PRESENT, LATE)
+                    existingRec.setStatus(rDto.getStatus() != null ? rDto.getStatus() : existingRec.getStatus());
+                    if (rDto.getRecognitionMethod() != null) existingRec.setRecognitionMethod(rDto.getRecognitionMethod());
+                    existingRec.setRecordState(effectiveRecordState);
+                    if (rDto.getConfidenceScore() != null) existingRec.setConfidenceScore(rDto.getConfidenceScore());
+                    if (rDto.getMarkedAt() != null) existingRec.setMarkedAt(rDto.getMarkedAt());
+                    existingRec.setVersion(Math.max(existingRec.getVersion(), recVer) + 1);
+                    existingRec.setUpdatedAt(Instant.now());
+                    recordRepo.save(existingRec);
                 } else {
                     CloudAttendanceRecord newRec = CloudAttendanceRecord.builder()
                             .id(UUID.randomUUID().toString())
@@ -209,9 +202,20 @@ public class SyncService {
     public PwaSyncPullResponse getPwaPullData(String institutionId, String facultyId) {
         ensureTenant(institutionId);
 
-        List<CloudClassAssignment> classes = (facultyId != null && !facultyId.isBlank())
-                ? classRepo.findByInstitutionIdAndFacultyId(institutionId, facultyId)
-                : classRepo.findByInstitutionId(institutionId);
+        List<CloudClassAssignment> classes;
+        if (facultyId != null && !facultyId.isBlank()) {
+            final String cleanTarget = facultyId.trim().toLowerCase().replaceAll("^(dr\\.?\\s*)", "");
+            classes = classRepo.findByInstitutionId(institutionId).stream()
+                    .filter(c -> facultyId.equalsIgnoreCase(c.getFacultyId())
+                            || facultyId.equalsIgnoreCase(c.getEmployeeId())
+                            || (c.getFacultyName() != null && (
+                                facultyId.equalsIgnoreCase(c.getFacultyName())
+                                || c.getFacultyName().toLowerCase().replaceAll("^(dr\\.?\\s*)", "").equals(cleanTarget)
+                            )))
+                    .toList();
+        } else {
+            classes = classRepo.findByInstitutionId(institutionId);
+        }
 
         List<CloudTopic> topics = topicRepo.findByInstitutionId(institutionId);
         List<CloudStudentRoster> students = studentRepo.findByInstitutionId(institutionId);

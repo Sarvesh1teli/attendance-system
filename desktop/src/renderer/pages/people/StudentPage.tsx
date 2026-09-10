@@ -249,7 +249,6 @@ export default function StudentPage() {
         const studentId = editingStudent.student_id || (editingStudent as any).id
         await window.api.student.update(studentId, {
           name: form.name.trim(),
-          admission_number: form.admission_number.trim(),
           batch_id: form.batch_id,
           program_id: form.program_id,
           department_id: form.department_id || undefined,

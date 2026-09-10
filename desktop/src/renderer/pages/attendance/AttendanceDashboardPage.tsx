@@ -18,7 +18,9 @@ import {
   FileSpreadsheet,
   FileText,
   ChevronDown,
-  Loader2
+  Loader2,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react'
 
 export default function AttendanceDashboardPage() {
@@ -42,6 +44,8 @@ export default function AttendanceDashboardPage() {
   const [selectedFaculty, setSelectedFaculty] = useState('ALL')
   const [statusFilter, setStatusFilter] = useState('ALL')
   const [searchQuery, setSearchQuery] = useState('')
+  const [page, setPage] = useState(1)
+  const pageSize = 10
 
   // Export dropdown & loading states
   const [showExportMenu, setShowExportMenu] = useState(false)
@@ -150,10 +154,14 @@ export default function AttendanceDashboardPage() {
     setSelectedFaculty('ALL')
     setStatusFilter('ALL')
     setSearchQuery('')
+    setPage(1)
   }
 
   const filteredSessions = sessions.filter((s) => {
-    // 1. Department Filter
+    // Only submitted/completed sessions should show in admin, not OPEN sessions
+    if (s.status === 'OPEN' || s.status === 'IN_PROGRESS') {
+      return false
+    }
     if (selectedDepartment !== 'ALL') {
       if (s.department_id !== selectedDepartment) {
         return false
@@ -195,6 +203,9 @@ export default function AttendanceDashboardPage() {
     }
     return true
   })
+
+  const totalPages = Math.max(1, Math.ceil(filteredSessions.length / pageSize))
+  const paginatedSessions = filteredSessions.slice((page - 1) * pageSize, page * pageSize)
 
   const exportColumns = [
     { header: 'Session Date', key: 'session_date', width: 14 },
@@ -296,43 +307,23 @@ export default function AttendanceDashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
-            <ClipboardList className="h-6 w-6 text-primary" />
-            Class Attendance Management
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Track and filter attendance sessions across departments, student batches, subjects, and faculty.
-          </p>
-        </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 transition-colors shadow-sm"
-        >
-          <Plus className="h-4 w-4" />
-          Start New Class Session
-        </button>
-      </div>
-
       {/* Filter Toolbar (Ordered: 1. Dept -> 2. Batch -> 3. Subject -> 4. Faculty -> 5. Status) */}
       <div className="bg-card border rounded-lg p-3.5 shadow-sm space-y-3">
-        {/* Top line: Search input + active counter + reset button + Export dropdown */}
+        {/* Top line: Search input + active counter + reset button + Export dropdown + Start New Class Session */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-          <div className="relative flex-1">
+          <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
             <input
               type="text"
               placeholder="Search topic, subject, faculty, department, date..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => { setSearchQuery(e.target.value); setPage(1) }}
               className="w-full pl-9 pr-8 py-1.5 border rounded-md text-sm bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
             {searchQuery && (
               <button
                 type="button"
-                onClick={() => setSearchQuery('')}
+                onClick={() => { setSearchQuery(''); setPage(1) }}
                 className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
               >
                 <X className="h-4 w-4" />
@@ -340,7 +331,7 @@ export default function AttendanceDashboardPage() {
             )}
           </div>
 
-          <div className="flex items-center gap-2 justify-between sm:justify-end">
+          <div className="flex items-center gap-2 flex-wrap justify-between sm:justify-end">
             <span className="text-xs text-muted-foreground font-medium whitespace-nowrap px-1">
               Showing <strong className="text-foreground">{filteredSessions.length}</strong> of {sessions.length} sessions
             </span>
@@ -405,6 +396,14 @@ export default function AttendanceDashboardPage() {
                 </div>
               )}
             </div>
+
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground font-medium text-xs hover:bg-primary/90 transition-colors shadow-sm whitespace-nowrap"
+            >
+              <Plus className="h-4 w-4" />
+              Start New Class Session
+            </button>
           </div>
         </div>
 
@@ -418,7 +417,7 @@ export default function AttendanceDashboardPage() {
             </label>
             <select
               value={selectedDepartment}
-              onChange={(e) => setSelectedDepartment(e.target.value)}
+              onChange={(e) => { setSelectedDepartment(e.target.value); setPage(1) }}
               className="w-full border rounded-md px-2.5 py-1.5 text-xs bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 truncate"
             >
               <option value="ALL">All Departments</option>
@@ -438,7 +437,7 @@ export default function AttendanceDashboardPage() {
             </label>
             <select
               value={selectedBatch}
-              onChange={(e) => setSelectedBatch(e.target.value)}
+              onChange={(e) => { setSelectedBatch(e.target.value); setPage(1) }}
               className="w-full border rounded-md px-2.5 py-1.5 text-xs bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 truncate"
             >
               <option value="ALL">All Batches</option>
@@ -458,7 +457,7 @@ export default function AttendanceDashboardPage() {
             </label>
             <select
               value={selectedSubject}
-              onChange={(e) => setSelectedSubject(e.target.value)}
+              onChange={(e) => { setSelectedSubject(e.target.value); setPage(1) }}
               className="w-full border rounded-md px-2.5 py-1.5 text-xs bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 truncate"
             >
               <option value="ALL">All Subjects</option>
@@ -478,7 +477,7 @@ export default function AttendanceDashboardPage() {
             </label>
             <select
               value={selectedFaculty}
-              onChange={(e) => setSelectedFaculty(e.target.value)}
+              onChange={(e) => { setSelectedFaculty(e.target.value); setPage(1) }}
               className="w-full border rounded-md px-2.5 py-1.5 text-xs bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 truncate"
             >
               <option value="ALL">All Faculty</option>
@@ -498,12 +497,12 @@ export default function AttendanceDashboardPage() {
             </label>
             <select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
+              onChange={(e) => { setStatusFilter(e.target.value); setPage(1) }}
               className="w-full border rounded-md px-2.5 py-1.5 text-xs bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
             >
               <option value="ALL">All Statuses</option>
-              <option value="OPEN">Open (In Progress)</option>
               <option value="SUBMITTED">Submitted</option>
+              <option value="COMPLETED">Completed</option>
               <option value="LOCKED">Locked</option>
             </select>
           </div>
@@ -562,7 +561,7 @@ export default function AttendanceDashboardPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {filteredSessions.map((s) => {
+                {paginatedSessions.map((s) => {
                   const isCompleted = s.status === 'SUBMITTED' || s.status === 'LOCKED'
                   const pct = s.total_students > 0 ? Math.round((s.present_count / s.total_students) * 100) : 0
                   const topicDisplay = s.custom_topic || s.topic_name || s.topic_notes || '—'
@@ -688,6 +687,33 @@ export default function AttendanceDashboardPage() {
               </tbody>
             </table>
           </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t text-sm bg-muted/20">
+              <span className="text-xs text-muted-foreground">
+                Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, filteredSessions.length)} of {filteredSessions.length} sessions
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="p-1.5 rounded border text-xs disabled:opacity-40 hover:bg-muted"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <span className="px-2 text-xs font-medium">Page {page} of {totalPages}</span>
+                <button
+                  type="button"
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="p-1.5 rounded border text-xs disabled:opacity-40 hover:bg-muted"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

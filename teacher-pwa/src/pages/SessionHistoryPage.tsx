@@ -5,6 +5,7 @@ import {
   LocalAttendanceRecord,
   AssignedClass,
   CachedStudent,
+  isClassAssignedToTeacher,
 } from '../db/pwa-db'
 import { usePwaAuth } from '../context/PwaAuthContext'
 import {
@@ -28,7 +29,7 @@ const SESSIONS_PER_PAGE = 10
 const STUDENTS_PER_PAGE = 15
 
 export default function SessionHistoryPage() {
-  const { pendingSyncCount, triggerSync } = usePwaAuth()
+  const { teacher, pendingSyncCount, triggerSync } = usePwaAuth()
 
   // Tab switcher state: 'SESSIONS' (Daily Logs) or 'MONTHLY' (1-31 Days Register)
   const [activeTab, setActiveTab] = useState<'SESSIONS' | 'MONTHLY'>('SESSIONS')
@@ -84,12 +85,15 @@ export default function SessionHistoryPage() {
         subject_code: c.subject_code || c.subjectCode || '',
       }))
 
+      const myClasses = normalizedClasses.filter((c: any) => isClassAssignedToTeacher(c, teacher))
+      const availableClasses = myClasses.length > 0 ? myClasses : normalizedClasses
+
       setSessions(allSessions)
-      setClasses(normalizedClasses)
+      setClasses(availableClasses)
       setStudents(allStudents)
 
-      if (normalizedClasses.length > 0 && !selectedClassId) {
-        setSelectedClassId(normalizedClasses[0].id)
+      if (availableClasses.length > 0 && !selectedClassId) {
+        setSelectedClassId(availableClasses[0].id)
       }
 
       // Group records by session_id
@@ -108,7 +112,7 @@ export default function SessionHistoryPage() {
 
   useEffect(() => {
     loadHistoryData()
-  }, [])
+  }, [teacher?.id, teacher?.employee_id, teacher?.name])
 
   const handleSyncNow = async () => {
     setSyncing(true)

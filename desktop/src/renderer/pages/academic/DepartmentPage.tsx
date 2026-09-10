@@ -92,7 +92,7 @@ export default function DepartmentPage() {
   const handleToggleActive = async (d: Department) => {
     try {
       const nextActive = d.active === false ? true : false
-      await window.api.department.update(d.department_id, { ...d, active: nextActive })
+      await window.api.department.update(d.department_id, { active: nextActive })
       await load()
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : 'Update failed')

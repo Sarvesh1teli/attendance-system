@@ -504,17 +504,22 @@ export function initializeWebApiClient(): IpcApi {
           if (res.ok) {
             const data = await res.json()
             return data.map((t: any) => ({
+              ...t,
               faculty_id: t.id || t.facultyId || t.faculty_id,
               employee_id: t.employeeId || t.employee_id || '',
               name: t.name,
-              department_id: t.department || '',
+              department_id: t.departmentId || t.department_id || t.department || '',
+              department: t.department || '',
               designation: t.designation || 'Faculty Member',
+              gender: t.gender || null,
+              phone: t.phone || null,
+              email: t.email || null,
+              joining_date: t.joiningDate || t.joining_date || null,
               status: t.status || 'ACTIVE',
               face_enrolled: !!t.faceDescriptor,
               institution_id: t.institutionId || t.institution_id || getInstId(),
               created_at: t.createdAt || new Date().toISOString(),
               updated_at: t.updatedAt || new Date().toISOString(),
-              ...t,
             }))
           }
         } catch (e) {
@@ -535,20 +540,65 @@ export function initializeWebApiClient(): IpcApi {
             body: JSON.stringify({
               name: data.name,
               employeeId: data.employee_id || data.employeeId || '',
-              department: data.department_id || data.department || '',
+              department: data.department || '',
+              departmentId: data.department_id || data.departmentId || '',
               designation: data.designation || 'Faculty Member',
+              gender: data.gender || '',
+              phone: data.phone || '',
+              email: data.email || '',
+              joiningDate: data.joining_date || data.joiningDate || '',
+              status: data.status || 'ACTIVE',
               institutionId: instId,
               institutionName: instId,
             }),
           })
           if (!res.ok) throw new Error('Could not save faculty to cloud')
           const saved = await res.json()
-          return { ...data, ...saved, faculty_id: saved.id }
+          return {
+            ...data,
+            ...saved,
+            faculty_id: saved.id,
+            department_id: saved.departmentId || saved.department || data.department_id,
+          }
         } catch (e) {
           throw e
         }
       },
-      update: async (id: string, data: any) => updateTenantEntity('teachers', id, data),
+      update: async (id: string, data: any) => {
+        const instId = getInstId()
+        try {
+          const res = await fetch(`${getApiBase()}/api/v1/admin/teachers/${encodeURIComponent(id)}?institutionId=${encodeURIComponent(instId)}`, {
+            method: 'PUT',
+            headers: getHeaders(),
+            body: JSON.stringify({
+              id,
+              name: data.name,
+              employeeId: data.employee_id || data.employeeId || '',
+              department: data.department || '',
+              departmentId: data.department_id || data.departmentId || '',
+              designation: data.designation || 'Faculty Member',
+              gender: data.gender || '',
+              phone: data.phone || '',
+              email: data.email || '',
+              joiningDate: data.joining_date || data.joiningDate || '',
+              status: data.status || 'ACTIVE',
+              institutionId: instId,
+            }),
+          })
+          if (res.ok) {
+            const saved = await res.json()
+            return {
+              ...data,
+              ...saved,
+              faculty_id: saved.id,
+              department_id: saved.departmentId || saved.department || data.department_id,
+            }
+          }
+        } catch (e) {
+          console.warn('Could not update faculty in cloud:', e)
+        }
+        return updateTenantEntity('teachers', id, data)
+      },
       delete: async (id: string) => {
         try {
           await fetch(`${getApiBase()}/api/v1/admin/teachers/${encodeURIComponent(id)}?institutionId=${encodeURIComponent(getInstId())}`, {
@@ -777,17 +827,96 @@ export function initializeWebApiClient(): IpcApi {
     report: {
       getSummary: async () => {
         try {
-          const res = await fetch(`${getApiBase()}/api/v1/admin/reports/summary?institutionId=${encodeURIComponent(getInstId())}`)
+          const res = await fetch(`${getApiBase()}/api/v1/admin/reports/summary?institutionId=${encodeURIComponent(getInstId())}`, {
+            headers: getHeaders(),
+          })
           if (res.ok) return await res.json()
         } catch {}
         return { totalStudents: 0, totalTeachers: 0, totalClasses: 0, totalSessions: 0 }
       },
-      getShortageReport: async () => [],
-      getStudentSummary: async () => [],
+      getStudentSummary: async (filters?: any) => {
+        try {
+          const params = new URLSearchParams()
+          params.set('institutionId', getInstId())
+          if (filters?.batch_id) params.set('batchId', filters.batch_id)
+          if (filters?.subject_id) params.set('subjectId', filters.subject_id)
+          if (filters?.academic_year_id) params.set('academicYearId', filters.academic_year_id)
+          if (filters?.threshold != null) params.set('threshold', String(filters.threshold))
+          const res = await fetch(`${getApiBase()}/api/v1/admin/reports/student-summary?${params.toString()}`, {
+            headers: getHeaders(),
+          })
+          if (res.ok) {
+            const data = await res.json()
+            if (Array.isArray(data)) return data
+          }
+        } catch (e) {
+          console.warn('Could not fetch student summary from cloud:', e)
+        }
+        return []
+      },
+      getShortageReport: async (batchId?: string, subjectId?: string, threshold?: number, academicYearId?: string) => {
+        try {
+          const params = new URLSearchParams()
+          params.set('institutionId', getInstId())
+          if (batchId) params.set('batchId', batchId)
+          if (subjectId) params.set('subjectId', subjectId)
+          if (academicYearId) params.set('academicYearId', academicYearId)
+          if (threshold != null) params.set('threshold', String(threshold))
+          const res = await fetch(`${getApiBase()}/api/v1/admin/reports/shortage?${params.toString()}`, {
+            headers: getHeaders(),
+          })
+          if (res.ok) {
+            const data = await res.json()
+            if (Array.isArray(data)) return data
+          }
+        } catch (e) {
+          console.warn('Could not fetch shortage report from cloud:', e)
+        }
+        return []
+      },
       getMonthlyTrends: async () => [],
-      getFacultyWorkload: async () => [],
+      getFacultyWorkload: async () => {
+        try {
+          const res = await fetch(`${getApiBase()}/api/v1/admin/reports/faculty-workload?institutionId=${encodeURIComponent(getInstId())}`, {
+            headers: getHeaders(),
+          })
+          if (res.ok) {
+            const data = await res.json()
+            if (Array.isArray(data)) return data
+          }
+        } catch (e) {
+          console.warn('Could not fetch faculty workload from cloud:', e)
+        }
+        return []
+      },
       exportToPdf: async () => ({ success: true, filePath: 'report.pdf' }),
-      exportToExcel: async () => ({ success: true, filePath: 'report.xlsx' }),
+      exportToExcel: async (title: string, columns: any[], data: any[], filename: string) => {
+        try {
+          const headers = columns.map((c) => `"${(c.header || '').replace(/"/g, '""')}"`).join(',')
+          const rows = data.map((row) =>
+            columns
+              .map((c) => {
+                const val = row[c.key] ?? ''
+                return `"${String(val).replace(/"/g, '""')}"`
+              })
+              .join(',')
+          )
+          const csvContent = '\uFEFF' + [headers, ...rows].join('\r\n')
+          const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+          const url = URL.createObjectURL(blob)
+          const link = document.createElement('a')
+          link.href = url
+          link.download = filename.endsWith('.csv') ? filename : filename.replace(/\.xlsx$/, '.csv')
+          document.body.appendChild(link)
+          link.click()
+          document.body.removeChild(link)
+          URL.revokeObjectURL(url)
+          return { success: true, filePath: filename }
+        } catch (e) {
+          console.error('Export failed:', e)
+          return { success: false, error: String(e) }
+        }
+      },
     },
 
     faceEnrollment: {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Pencil, BookOpen, Check, X } from 'lucide-react'
+import { Plus, Pencil, BookOpen, Check, X, Search, RotateCcw } from 'lucide-react'
 import type { Subject, Department, CourseProgram, CreateSubjectInput, SubjectType } from '@main/ipc/types'
 
 const SUBJECT_TYPES: SubjectType[] = ['THEORY', 'PRACTICAL', 'CLINICAL', 'SEMINAR', 'LABORATORY', 'PROJECT', 'OTHER']
@@ -12,6 +12,7 @@ export default function SubjectPage() {
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Subject | null>(null)
   const [filterDept, setFilterDept] = useState('')
+  const [search, setSearch] = useState('')
   const [form, setForm] = useState({
     subject_name: '', subject_code: '', subject_type: 'THEORY' as SubjectType,
     department_id: '', program_id: '',
@@ -83,25 +84,56 @@ export default function SubjectPage() {
 
   const deptName = (id: string | null) => departments.find(d => d.department_id === id)?.department_name ?? '—'
 
+  const filteredSubjects = subjects.filter(s => {
+    const q = search.trim().toLowerCase()
+    return !q || s.subject_name.toLowerCase().includes(q) || s.subject_code.toLowerCase().includes(q)
+  })
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Subjects</h1>
-          <p className="text-muted-foreground text-sm">Manage subjects and courses</p>
+      {/* Search, Department Filter, and Add Subject in same row */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-1 flex-wrap items-center gap-3 min-w-[240px]">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <input
+              type="text"
+              className="w-full border rounded-md pl-9 pr-3 py-2 text-sm bg-background"
+              placeholder="Search subject by name or code..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
+          <select
+            className="border rounded-md px-3 py-2 text-sm bg-background"
+            value={filterDept}
+            onChange={(e) => setFilterDept(e.target.value)}
+          >
+            <option value="">All Departments</option>
+            {departments.map((d) => (
+              <option key={d.department_id} value={d.department_id}>
+                {d.department_name}
+              </option>
+            ))}
+          </select>
+
+          {(search || filterDept) && (
+            <button
+              onClick={() => { setSearch(''); setFilterDept('') }}
+              className="text-xs text-primary hover:underline flex items-center gap-1"
+            >
+              <RotateCcw className="h-3 w-3" /> Reset
+            </button>
+          )}
         </div>
-        <button onClick={openCreate}
-          className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90">
+
+        <button
+          onClick={openCreate}
+          className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 whitespace-nowrap"
+        >
           <Plus className="h-4 w-4" /> Add Subject
         </button>
-      </div>
-
-      <div className="flex gap-3">
-        <select className="border rounded-md px-3 py-2 text-sm bg-background"
-          value={filterDept} onChange={e => setFilterDept(e.target.value)}>
-          <option value="">All Departments</option>
-          {departments.map(d => <option key={d.department_id} value={d.department_id}>{d.department_name}</option>)}
-        </select>
       </div>
 
       {showForm && (
@@ -176,7 +208,7 @@ export default function SubjectPage() {
               </tr>
             </thead>
             <tbody>
-              {subjects.map((s, i) => (
+              {filteredSubjects.map((s, i) => (
                 <tr key={s.subject_id} className={i % 2 === 0 ? '' : 'bg-muted/10'}>
                   <td className="px-4 py-3 font-medium">{s.subject_name}</td>
                   <td className="px-4 py-3 text-muted-foreground">{s.subject_code}</td>

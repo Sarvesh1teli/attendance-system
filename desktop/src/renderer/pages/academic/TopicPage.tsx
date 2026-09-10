@@ -75,7 +75,7 @@ export default function TopicPage() {
   const handleToggleActive = async (t: Topic) => {
     try {
       const nextActive = t.active === false ? true : false
-      await window.api.topic.update(t.topic_id, { ...t, active: nextActive })
+      await window.api.topic.update(t.topic_id, { active: nextActive })
       await loadTopics(selectedSubject)
     }
     catch (e: unknown) { alert(e instanceof Error ? e.message : 'Update failed') }

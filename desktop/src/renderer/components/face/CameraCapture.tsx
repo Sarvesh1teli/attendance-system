@@ -5,10 +5,16 @@ import * as faceapi from '@vladmandic/face-api'
 
 export type SampleType = 'FRONT' | 'LEFT' | 'RIGHT'
 
+export interface QualityScore {
+  score: number        // 0-100
+  label: 'GOOD' | 'FAIR' | 'POOR'
+  issues: string[]
+}
+
 interface Props {
   entityName: string
   currentStep: SampleType
-  onCapture: (sampleType: SampleType, imageBase64: string, descriptorJson?: string | null) => Promise<void>
+  onCapture: (sampleType: SampleType, imageBase64: string, descriptorJson?: string | null, quality?: QualityScore) => Promise<void>
   disabled?: boolean
 }
 
@@ -18,6 +24,99 @@ export function CameraCapture({ entityName, currentStep, onCapture, disabled }: 
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [capturing, setCapturing] = useState(false)
   const [capturedPreview, setCapturedPreview] = useState<string | null>(null)
+  const [lastQuality, setLastQuality] = useState<QualityScore | null>(null)
+
+  function computeQuality(
+    canvas: HTMLCanvasElement,
+    faceBox: { x: number; y: number; width: number; height: number } | null
+  ): QualityScore {
+    const issues: string[] = []
+    let score = 100
+
+    // 1. Face size check: face should be at least 20% of frame height
+    if (faceBox) {
+      const faceRatio = faceBox.height / canvas.height
+      if (faceRatio < 0.20) {
+        score -= 30
+        issues.push('Face too small — move closer')
+      } else if (faceRatio < 0.30) {
+        score -= 10
+        issues.push('Face could be larger')
+      }
+
+      // Face should be roughly centered (within 30% of center)
+      const centerX = canvas.width / 2
+      const faceCenterX = faceBox.x + faceBox.width / 2
+      const offsetRatio = Math.abs(faceCenterX - centerX) / canvas.width
+      if (offsetRatio > 0.30) {
+        score -= 15
+        issues.push('Face not centered')
+      }
+    }
+
+    // 2. Brightness check via grayscale mean of center region
+    const ctx = canvas.getContext('2d')
+    if (ctx) {
+      const cx = Math.floor(canvas.width * 0.3)
+      const cy = Math.floor(canvas.height * 0.2)
+      const cw = Math.floor(canvas.width * 0.4)
+      const ch = Math.floor(canvas.height * 0.6)
+      try {
+        const imageData = ctx.getImageData(cx, cy, cw, ch)
+        const data = imageData.data
+        let totalBrightness = 0
+        const pixelCount = data.length / 4
+        for (let i = 0; i < data.length; i += 4) {
+          totalBrightness += (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114)
+        }
+        const avgBrightness = totalBrightness / pixelCount
+
+        if (avgBrightness < 40) {
+          score -= 30
+          issues.push('Too dark — increase lighting')
+        } else if (avgBrightness < 70) {
+          score -= 10
+          issues.push('Slightly dark')
+        } else if (avgBrightness > 220) {
+          score -= 25
+          issues.push('Too bright — reduce lighting')
+        }
+
+        // 3. Sharpness via Laplacian variance
+        let laplacianSum = 0
+        let laplacianCount = 0
+        for (let y = 1; y < ch - 1; y++) {
+          for (let x = 1; x < cw - 1; x++) {
+            const idx = (y * cw + x) * 4
+            const center = data[idx]
+            const top = data[((y - 1) * cw + x) * 4]
+            const bottom = data[((y + 1) * cw + x) * 4]
+            const left = data[(y * cw + (x - 1)) * 4]
+            const right = data[(y * cw + (x + 1)) * 4]
+            const laplacian = Math.abs(-4 * center + top + bottom + left + right)
+            laplacianSum += laplacian
+            laplacianCount++
+          }
+        }
+        const sharpness = laplacianCount > 0 ? laplacianSum / laplacianCount : 0
+
+        if (sharpness < 10) {
+          score -= 30
+          issues.push('Image blurry — hold steady')
+        } else if (sharpness < 20) {
+          score -= 10
+          issues.push('Slightly blurry')
+        }
+      } catch {
+        // Canvas tainted or unavailable — skip pixel analysis
+      }
+    }
+
+    const clampedScore = Math.max(0, Math.min(100, score))
+    const label: QualityScore['label'] = clampedScore >= 70 ? 'GOOD' : clampedScore >= 40 ? 'FAIR' : 'POOR'
+
+    return { score: clampedScore, label, issues }
+  }
 
   useEffect(() => {
     let activeStream: MediaStream | null = null
@@ -73,6 +172,7 @@ export function CameraCapture({ entityName, currentStep, onCapture, disabled }: 
 
       // Directly extract face descriptor using faceapi on live video element
       let descriptorJson: string | null = null
+      let faceBox: { x: number; y: number; width: number; height: number } | null = null
       try {
         await faceRecognitionService.loadModels()
         const det = await faceapi
@@ -84,13 +184,18 @@ export function CameraCapture({ entityName, currentStep, onCapture, disabled }: 
           .withFaceDescriptor()
         if (det) {
           descriptorJson = JSON.stringify(Array.from(det.descriptor))
+          faceBox = { x: det.detection.box.x, y: det.detection.box.y, width: det.detection.box.width, height: det.detection.box.height }
         }
       } catch (e) {
-        console.warn('Live face extraction from camera failed:', e)
+        console.warn('[FaceEnrollment] Live face extraction from camera failed:', e)
       }
 
+      // Compute image quality score
+      const quality = computeQuality(canvas, faceBox)
+      setLastQuality(quality)
+
       setCapturedPreview(dataUrl)
-      await onCapture(currentStep, base64, descriptorJson)
+      await onCapture(currentStep, base64, descriptorJson, quality)
       setCapturedPreview(null)
     } catch (err) {
       console.error('Snapshot capture error:', err)
@@ -179,6 +284,27 @@ export function CameraCapture({ entityName, currentStep, onCapture, disabled }: 
           </>
         )}
       </button>
+
+      {/* Last Capture Quality Badge */}
+      {lastQuality && (
+        <div className={`w-full text-center px-4 py-2.5 rounded-xl border text-xs font-semibold ${
+          lastQuality.label === 'GOOD'
+            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600'
+            : lastQuality.label === 'FAIR'
+            ? 'bg-amber-500/10 border-amber-500/30 text-amber-600'
+            : 'bg-red-500/10 border-red-500/30 text-red-600'
+        }`}>
+          <div className="flex items-center justify-center gap-2">
+            <span>{lastQuality.label}</span>
+            <span className="font-mono">({lastQuality.score}/100)</span>
+          </div>
+          {lastQuality.issues.length > 0 && (
+            <p className="mt-1 text-[11px] font-normal opacity-80">
+              {lastQuality.issues.join(' · ')}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   )
 }

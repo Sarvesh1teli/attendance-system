@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePwaAuth } from '../context/PwaAuthContext'
-import { db, AssignedClass, LocalAttendanceSession, CachedStudent } from '../db/pwa-db'
+import { db, AssignedClass, LocalAttendanceSession, CachedStudent, isClassAssignedToTeacher } from '../db/pwa-db'
 import {
   BookOpen,
   Calendar,
@@ -14,6 +14,9 @@ import {
   CheckCircle2,
   CalendarDays,
   Sparkles,
+  History,
+  GraduationCap,
+  PlusCircle,
 } from 'lucide-react'
 import { formatTo12Hour, extractDayOfWeek, DAY_NAMES } from '../utils/time-utils'
 
@@ -27,6 +30,7 @@ export default function DashboardPage() {
   const [totalUniqueStudents, setTotalUniqueStudents] = useState<number>(0)
   const [todayCompletedSessionsCount, setTodayCompletedSessionsCount] = useState<number>(0)
   const [loading, setLoading] = useState(true)
+  const [showExtraPicker, setShowExtraPicker] = useState(false)
 
   const todayDow = new Date().getDay()
   const todayIso = new Date().toISOString().split('T')[0]
@@ -69,14 +73,15 @@ export default function DashboardPage() {
             room: c.room || 'Lecture Hall 1',
           }
         })
-        setClasses(assigned)
+        const myClasses = assigned.filter((c) => isClassAssignedToTeacher(c, teacher))
+        setClasses(myClasses)
 
         // 2. Load student counts for each class
         const counts: Record<string, number> = {}
         const allStudents = await db.students.toArray()
         const uniqueStudentIds = new Set<string>()
 
-        for (const cls of assigned) {
+        for (const cls of myClasses) {
           const matching = allStudents.filter(
             (s) => s.class_id === cls.id || (cls.batch_id && s.class_id === cls.batch_id)
           )
@@ -84,7 +89,7 @@ export default function DashboardPage() {
           matching.forEach((s) => uniqueStudentIds.add(s.student_id))
         }
         setStudentCounts(counts)
-        setTotalUniqueStudents(uniqueStudentIds.size > 0 ? uniqueStudentIds.size : allStudents.length)
+        setTotalUniqueStudents(uniqueStudentIds.size)
 
         // 3. Load active & today's completed sessions
         const openSessions = await db.sessions.where('status').equals('OPEN').toArray()
@@ -104,7 +109,7 @@ export default function DashboardPage() {
     }
 
     loadDashboardData()
-  }, [todayIso])
+  }, [teacher?.id, teacher?.employee_id, teacher?.name, todayIso])
 
   const handleStartClassSession = (cls: AssignedClass, e?: React.MouseEvent) => {
     if (e) e.stopPropagation()
@@ -250,17 +255,35 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Quick Navigation Action Pills */}
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          onClick={() => navigate('/schedule')}
+          className="flex items-center justify-center gap-2 py-2.5 px-3 bg-card border rounded-2xl text-xs font-bold text-foreground hover:bg-muted/50 transition-colors shadow-sm"
+        >
+          <CalendarDays className="h-4 w-4 text-primary" />
+          <span>Weekly Timetable</span>
+        </button>
+        <button
+          onClick={() => navigate('/history')}
+          className="flex items-center justify-center gap-2 py-2.5 px-3 bg-card border rounded-2xl text-xs font-bold text-foreground hover:bg-muted/50 transition-colors shadow-sm"
+        >
+          <History className="h-4 w-4 text-primary" />
+          <span>Session History</span>
+        </button>
+      </div>
+
       {/* In-Progress Session Alert */}
       {activeSessions.length > 0 && (
-        <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 space-y-2">
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 space-y-2.5 animate-pulse-subtle">
           <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 text-xs font-bold">
-            <AlertCircle className="h-4 w-4 text-amber-600" />
-            <span>Active Attendance Session In Progress</span>
+            <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
+            <span>Attendance Session In Progress</span>
           </div>
           {activeSessions.map((s) => (
             <div
               key={s.session_id}
-              className="flex items-center justify-between bg-card p-3 rounded-xl border"
+              className="flex items-center justify-between bg-card p-3 rounded-xl border shadow-sm"
             >
               <div>
                 <p className="text-xs font-bold text-foreground">
@@ -287,183 +310,159 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Today's Schedule Quick Launch Section */}
-      {todayClasses.length > 0 && (
-        <div className="space-y-2.5">
-          <div className="flex items-center justify-between px-1">
-            <h3 className="text-xs font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wider">
-              <Clock className="h-4 w-4 text-primary" />
-              <span>Today's Classes ({todayClasses.length})</span>
-            </h3>
-            <button
-              onClick={() => navigate('/schedule')}
-              className="text-xs font-semibold text-primary hover:underline"
-            >
-              View Full Week ➜
-            </button>
-          </div>
-
-          <div className="space-y-2.5">
-            {todayClasses.map((cls) => (
-              <div
-                key={cls.id}
-                onClick={() => navigate(`/class/${cls.id}`)}
-                className="bg-card border rounded-2xl p-4 shadow-sm hover:border-primary/50 transition-all cursor-pointer space-y-3"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-primary/10 text-primary uppercase">
-                        {cls.subject_code}
-                      </span>
-                      <span className="text-xs font-bold text-foreground">
-                        {cls.subject_name}
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5">
-                      <Users className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span>{cls.batch_name}</span>
-                      {cls.group_name && (
-                        <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-medium text-foreground">
-                          {cls.group_name}
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                </div>
-
-                <div className="flex items-center justify-between text-xs pt-2 border-t border-border/60">
-                  <div className="flex items-center gap-1.5 text-foreground font-semibold">
-                    <Clock className="h-3.5 w-3.5 text-primary" />
-                    <span>{formatTo12Hour(cls.schedule_time)}</span>
-                  </div>
-                  {cls.room && (
-                    <div className="flex items-center gap-1 text-muted-foreground">
-                      <MapPin className="h-3.5 w-3.5" />
-                      <span>{cls.room}</span>
-                    </div>
-                  )}
-                </div>
-
-                <button
-                  onClick={(e) => handleStartClassSession(cls, e)}
-                  className="w-full flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-bold py-2 rounded-xl text-xs shadow-sm transition-all"
-                >
-                  <Play className="h-3.5 w-3.5 fill-current" />
-                  <span>Take Attendance</span>
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* My Assigned Classes Section (Requested Feature) */}
+      {/* Today's Schedule Section */}
       <div className="space-y-3 pt-1">
         <div className="flex items-center justify-between px-1">
-          <div>
-            <h3 className="text-sm font-bold text-foreground flex items-center gap-1.5">
-              <BookOpen className="h-4 w-4 text-primary" />
-              <span>My Assigned Classes</span>
-              <span className="text-xs font-extrabold px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-                {classes.length}
-              </span>
-            </h3>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
-              Tap any class to view enrolled students & attendance history
-            </p>
-          </div>
+          <h3 className="text-xs font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wider">
+            <Clock className="h-4 w-4 text-primary" />
+            <span>Today's Classes ({todayClasses.length})</span>
+          </h3>
+          <button
+            onClick={() => navigate('/schedule')}
+            className="text-xs font-bold text-primary hover:underline flex items-center gap-1"
+          >
+            Full Week <ChevronRight className="h-3 w-3" />
+          </button>
         </div>
 
         {loading ? (
-          <div className="p-8 text-center text-xs text-muted-foreground">Loading classes...</div>
-        ) : classes.length === 0 ? (
-          <div className="p-8 text-center bg-card border rounded-2xl space-y-2">
-            <CalendarDays className="h-8 w-8 text-muted-foreground/40 mx-auto" />
-            <p className="text-xs font-bold text-foreground">No assigned classes found</p>
-            <p className="text-[11px] text-muted-foreground">
-              Classes assigned by admin will appear here after sync.
-            </p>
+          <div className="p-8 text-center text-xs text-muted-foreground bg-card border rounded-2xl">
+            Loading today's schedule...
+          </div>
+        ) : todayClasses.length === 0 ? (
+          <div className="p-6 text-center bg-card border rounded-2xl space-y-3 shadow-sm">
+            <div className="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center mx-auto">
+              <CalendarDays className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-foreground">No classes scheduled for today</p>
+              <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">
+                Check your weekly timetable or launch an extra attendance session below.
+              </p>
+            </div>
+            <div className="pt-1 flex items-center justify-center gap-2">
+              <button
+                onClick={() => navigate('/schedule')}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm"
+              >
+                View Weekly Schedule
+              </button>
+            </div>
           </div>
         ) : (
           <div className="space-y-3">
-            {classes.map((cls) => {
-              const dow = extractDayOfWeek(cls)
+            {todayClasses.map((cls) => {
               const studentCount = studentCounts[cls.id] ?? 0
-
               return (
                 <div
                   key={cls.id}
                   onClick={() => navigate(`/class/${cls.id}`)}
-                  className="group bg-card border hover:border-primary/60 hover:shadow-md rounded-2xl p-4 transition-all cursor-pointer space-y-3 relative overflow-hidden"
+                  className="group bg-card border rounded-2xl p-4 shadow-sm hover:border-primary/50 transition-all cursor-pointer space-y-3"
                 >
-                  {/* Left colored indicator bar */}
-                  <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary group-hover:w-1.5 transition-all" />
-
-                  <div className="flex items-start justify-between gap-3 pl-1">
+                  <div className="flex items-start justify-between gap-2">
                     <div className="space-y-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary uppercase tracking-wider">
+                        <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-primary/10 text-primary uppercase">
                           {cls.subject_code}
                         </span>
                         {cls.program_name && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground">
+                          <span className="text-[10px] font-medium bg-muted text-muted-foreground px-1.5 py-0.5 rounded">
                             {cls.program_name}
                           </span>
                         )}
-                        {dow !== null && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-500/10 text-blue-600">
-                            {DAY_NAMES[dow]}
-                          </span>
-                        )}
                       </div>
-
-                      <h4 className="font-extrabold text-base text-foreground group-hover:text-primary transition-colors leading-tight">
+                      <h4 className="text-sm font-bold text-foreground group-hover:text-primary transition-colors leading-tight">
                         {cls.subject_name}
                       </h4>
-
-                      <p className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium">
-                        <Users className="h-3.5 w-3.5 text-primary/70" />
+                      <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                        <GraduationCap className="h-3.5 w-3.5 text-primary/70" />
                         <span>{cls.batch_name}</span>
                         {cls.group_name && (
-                          <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-semibold text-foreground">
+                          <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-medium text-foreground">
                             {cls.group_name}
                           </span>
                         )}
                       </p>
                     </div>
-
-                    <div className="w-8 h-8 rounded-full bg-muted/60 group-hover:bg-primary/10 group-hover:text-primary text-muted-foreground flex items-center justify-center shrink-0 transition-colors">
-                      <ChevronRight className="h-4 w-4" />
-                    </div>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
                   </div>
 
-                  {/* Footer details */}
-                  <div className="flex items-center justify-between text-xs pt-2 border-t border-border/50 pl-1 text-muted-foreground">
-                    <div className="flex items-center gap-1.5 font-medium text-foreground">
+                  <div className="flex items-center justify-between text-xs pt-2 border-t border-border/50">
+                    <div className="flex items-center gap-1.5 text-foreground font-semibold">
                       <Clock className="h-3.5 w-3.5 text-primary" />
                       <span>{formatTo12Hour(cls.schedule_time)}</span>
                     </div>
-
-                    <div className="flex items-center gap-3">
-                      <span className="font-semibold text-primary text-[11px] bg-primary/5 px-2 py-0.5 rounded-full border border-primary/10">
-                        👥 {studentCount} {studentCount === 1 ? 'Student' : 'Students'}
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-medium text-muted-foreground">
+                        {studentCount} Students
                       </span>
                       {cls.room && (
-                        <span className="flex items-center gap-1 text-[11px]">
+                        <div className="flex items-center gap-1 text-muted-foreground text-[11px]">
                           <MapPin className="h-3 w-3" />
                           <span>{cls.room}</span>
-                        </span>
+                        </div>
                       )}
                     </div>
                   </div>
+
+                  <button
+                    onClick={(e) => handleStartClassSession(cls, e)}
+                    className="w-full flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-bold py-2.5 rounded-xl text-xs shadow-sm transition-all active:scale-[0.99]"
+                  >
+                    <Play className="h-3.5 w-3.5 fill-current" />
+                    <span>Take Attendance</span>
+                  </button>
                 </div>
               )
             })}
           </div>
         )}
       </div>
+
+      {/* Extra Session Quick Picker */}
+      {classes.length > 0 && (
+        <div className="pt-2">
+          <button
+            onClick={() => setShowExtraPicker(!showExtraPicker)}
+            className="w-full flex items-center justify-between p-3.5 bg-card border rounded-2xl text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors shadow-sm"
+          >
+            <span className="flex items-center gap-2 text-foreground font-bold">
+              <PlusCircle className="h-4 w-4 text-primary" />
+              <span>Launch Extra / Substitute Class</span>
+            </span>
+            <ChevronRight
+              className={`h-4 w-4 text-muted-foreground transition-transform duration-150 ${
+                showExtraPicker ? 'rotate-90' : ''
+              }`}
+            />
+          </button>
+
+          {showExtraPicker && (
+            <div className="mt-2 space-y-2 p-3 bg-muted/20 border rounded-2xl animate-in fade-in-50">
+              <p className="text-[11px] text-muted-foreground px-1 font-medium">
+                Choose any assigned class to launch an extra or rescheduled session:
+              </p>
+              <div className="space-y-1.5">
+                {classes.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => handleStartClassSession(c)}
+                    className="w-full flex items-center justify-between p-2.5 rounded-xl bg-card border hover:border-primary/50 text-left transition-colors text-xs"
+                  >
+                    <div className="min-w-0 pr-2">
+                      <div className="font-bold text-foreground truncate">{c.subject_name}</div>
+                      <div className="text-[10px] text-muted-foreground truncate">
+                        {c.batch_name} • {c.subject_code}
+                      </div>
+                    </div>
+                    <span className="text-[11px] font-bold text-primary shrink-0">Start ➜</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Off-Schedule Confirmation Modal */}
       {offScheduleModal && (

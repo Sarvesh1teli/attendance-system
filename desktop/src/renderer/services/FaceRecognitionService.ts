@@ -84,8 +84,8 @@ class FaceRecognitionService {
           if (detection) {
             descriptors.push(detection.descriptor)
           }
-        } catch {
-          // Skip unprocessable images
+        } catch (e) {
+          console.warn('[FaceRecognition] Skipping unprocessable image for student:', student.student_name, e)
         }
       }
 
@@ -125,7 +125,7 @@ class FaceRecognitionService {
 
     try {
       const detections = await faceapi
-        .detectAllFaces(videoEl, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.4 }))
+        .detectAllFaces(videoEl, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 }))
         .withFaceLandmarks(true)
         .withFaceDescriptors()
 
@@ -152,7 +152,8 @@ class FaceRecognitionService {
       }
 
       return results
-    } catch {
+    } catch (err) {
+      console.warn('[FaceRecognition] detectAndMatch failed:', err)
       return []
     }
   }

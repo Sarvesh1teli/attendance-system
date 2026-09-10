@@ -420,6 +420,38 @@ public class AdminApiController {
 
     // ─── Faculty / Teacher CRUD ───
 
+    private void resolveTeacherDepartment(String resId, CloudTeacher teacher) {
+        List<CloudTenantEntity> depts = tenantEntityRepo.findByInstitutionIdAndEntityType(resId, "departments");
+        // If departmentId is set, resolve department name
+        if (teacher.getDepartmentId() != null && !teacher.getDepartmentId().isBlank()) {
+            for (CloudTenantEntity de : depts) {
+                if (teacher.getDepartmentId().equalsIgnoreCase(de.getId())) {
+                    try {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> map = objectMapper.readValue(de.getDataJson(), Map.class);
+                        if (map.get("department_name") != null) {
+                            teacher.setDepartment(String.valueOf(map.get("department_name")));
+                        }
+                    } catch (Exception ignored) {}
+                    break;
+                }
+            }
+        }
+        // If department name is set but departmentId is null/blank, resolve departmentId
+        if (teacher.getDepartment() != null && !teacher.getDepartment().isBlank() && (teacher.getDepartmentId() == null || teacher.getDepartmentId().isBlank())) {
+            for (CloudTenantEntity de : depts) {
+                try {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> map = objectMapper.readValue(de.getDataJson(), Map.class);
+                    if (teacher.getDepartment().equalsIgnoreCase(String.valueOf(map.get("department_name")))) {
+                        teacher.setDepartmentId(de.getId());
+                        break;
+                    }
+                } catch (Exception ignored) {}
+            }
+        }
+    }
+
     @GetMapping("/teachers")
     public ResponseEntity<List<CloudTeacher>> getTeachers(
             @RequestParam(required = false, defaultValue = "") String institutionId) {
@@ -427,7 +459,11 @@ public class AdminApiController {
         if (resId.isBlank()) {
             return ResponseEntity.ok(Collections.emptyList());
         }
-        return ResponseEntity.ok(teacherRepo.findByInstitutionId(resId));
+        List<CloudTeacher> list = teacherRepo.findByInstitutionId(resId);
+        for (CloudTeacher t : list) {
+            resolveTeacherDepartment(resId, t);
+        }
+        return ResponseEntity.ok(list);
     }
 
     @PostMapping("/teachers")
@@ -439,8 +475,49 @@ public class AdminApiController {
             teacher.setId(UUID.randomUUID().toString());
         }
         teacher.setInstitutionId(resId);
+        if (teacher.getStatus() == null || teacher.getStatus().isBlank()) {
+            teacher.setStatus("ACTIVE");
+        }
+        resolveTeacherDepartment(resId, teacher);
         teacher.setUpdatedAt(Instant.now());
         CloudTeacher saved = teacherRepo.save(teacher);
+        return ResponseEntity.ok(saved);
+    }
+
+    @PutMapping("/teachers/{id}")
+    @Transactional
+    public ResponseEntity<?> updateTeacher(
+            @PathVariable String id,
+            @RequestParam String institutionId,
+            @RequestBody Map<String, Object> body) {
+        String resId = resolveId(institutionId);
+        Optional<CloudTeacher> opt = teacherRepo.findById(id);
+        if (opt.isEmpty()) {
+            opt = teacherRepo.findByInstitutionId(resId).stream()
+                    .filter(t -> id.equalsIgnoreCase(t.getId()) || id.equalsIgnoreCase(t.getEmployeeId()))
+                    .findFirst();
+        }
+        if (opt.isEmpty()) {
+            return ResponseEntity.status(404).body(Map.of("error", "Teacher not found: " + id));
+        }
+        CloudTeacher t = opt.get();
+        if (body.containsKey("name") && body.get("name") != null) t.setName(String.valueOf(body.get("name")));
+        if (body.containsKey("employeeId") && body.get("employeeId") != null) t.setEmployeeId(String.valueOf(body.get("employeeId")));
+        if (body.containsKey("employee_id") && body.get("employee_id") != null) t.setEmployeeId(String.valueOf(body.get("employee_id")));
+        if (body.containsKey("departmentId")) t.setDepartmentId(body.get("departmentId") != null ? String.valueOf(body.get("departmentId")) : null);
+        if (body.containsKey("department_id")) t.setDepartmentId(body.get("department_id") != null ? String.valueOf(body.get("department_id")) : null);
+        if (body.containsKey("department")) t.setDepartment(body.get("department") != null ? String.valueOf(body.get("department")) : null);
+        if (body.containsKey("gender")) t.setGender(body.get("gender") != null ? String.valueOf(body.get("gender")) : null);
+        if (body.containsKey("designation")) t.setDesignation(body.get("designation") != null ? String.valueOf(body.get("designation")) : null);
+        if (body.containsKey("phone")) t.setPhone(body.get("phone") != null ? String.valueOf(body.get("phone")) : null);
+        if (body.containsKey("email")) t.setEmail(body.get("email") != null ? String.valueOf(body.get("email")) : null);
+        if (body.containsKey("joiningDate")) t.setJoiningDate(body.get("joiningDate") != null ? String.valueOf(body.get("joiningDate")) : null);
+        if (body.containsKey("joining_date")) t.setJoiningDate(body.get("joining_date") != null ? String.valueOf(body.get("joining_date")) : null);
+        if (body.containsKey("status") && body.get("status") != null) t.setStatus(String.valueOf(body.get("status")));
+
+        resolveTeacherDepartment(resId, t);
+        t.setUpdatedAt(Instant.now());
+        CloudTeacher saved = teacherRepo.save(t);
         return ResponseEntity.ok(saved);
     }
 
@@ -1068,6 +1145,254 @@ public class AdminApiController {
                 "totalClasses", classCount,
                 "totalSessions", sessionCount
         ));
+    }
+
+    @GetMapping("/reports/student-summary")
+    public ResponseEntity<List<Map<String, Object>>> getStudentSummary(
+            @RequestParam(required = false, defaultValue = "") String institutionId,
+            @RequestParam(required = false) String batchId,
+            @RequestParam(required = false) String subjectId,
+            @RequestParam(required = false) String academicYearId,
+            @RequestParam(required = false, defaultValue = "75") double threshold) {
+        String resId = resolveId(institutionId);
+        if (resId.isBlank()) return ResponseEntity.ok(Collections.emptyList());
+
+        List<CloudStudentRoster> allStudents = studentRepo.findByInstitutionId(resId);
+        List<CloudAttendanceSession> allSessions = sessionRepo.findByInstitutionId(resId);
+        List<CloudAttendanceRecord> allRecords = recordRepo.findByInstitutionId(resId);
+        List<CloudTenantEntity> batchEntities = tenantEntityRepo.findByInstitutionIdAndEntityType(resId, "batches");
+        List<CloudTenantEntity> subjectEntities = tenantEntityRepo.findByInstitutionIdAndEntityType(resId, "subjects");
+
+        Map<String, String> batchNameMap = new HashMap<>();
+        for (CloudTenantEntity b : batchEntities) {
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> map = objectMapper.readValue(b.getDataJson(), Map.class);
+                String name = (String) map.getOrDefault("batch_name", (String) map.getOrDefault("name", b.getId()));
+                batchNameMap.put(b.getId(), name);
+            } catch (Exception ignored) {}
+        }
+
+        Map<String, Map<String, String>> subjMap = new HashMap<>();
+        for (CloudTenantEntity s : subjectEntities) {
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> map = objectMapper.readValue(s.getDataJson(), Map.class);
+                String name = (String) map.getOrDefault("subject_name", (String) map.getOrDefault("name", s.getId()));
+                String code = (String) map.getOrDefault("subject_code", (String) map.getOrDefault("code", ""));
+                subjMap.put(s.getId(), Map.of("name", name, "code", code));
+            } catch (Exception ignored) {}
+        }
+
+        // 1. Filter ONLY COMPLETED sessions matching filters
+        List<CloudAttendanceSession> completedSessions = new ArrayList<>();
+        Map<String, CloudAttendanceSession> completedSessionMap = new HashMap<>();
+        for (CloudAttendanceSession sess : allSessions) {
+            if (!"COMPLETED".equalsIgnoreCase(sess.getStatus())) continue;
+            if (batchId != null && !batchId.isBlank() && !batchId.equals(sess.getBatchId())) continue;
+            if (subjectId != null && !subjectId.isBlank() && !subjectId.equals(sess.getSubjectId())) continue;
+            if (academicYearId != null && !academicYearId.isBlank() && !academicYearId.equals(sess.getAcademicYearId())) continue;
+            completedSessions.add(sess);
+            completedSessionMap.put(sess.getSessionId(), sess);
+        }
+
+        // 2. Filter students matching batch
+        List<CloudStudentRoster> eligibleStudents = new ArrayList<>();
+        for (CloudStudentRoster st : allStudents) {
+            if (batchId != null && !batchId.isBlank() && !batchId.equals(st.getBatchId())) continue;
+            eligibleStudents.add(st);
+        }
+
+        // 3. Map records by (sessionId + "_" + studentId)
+        Map<String, CloudAttendanceRecord> recordLookup = new HashMap<>();
+        for (CloudAttendanceRecord rec : allRecords) {
+            if (completedSessionMap.containsKey(rec.getSessionId())) {
+                recordLookup.put(rec.getSessionId() + "___" + rec.getStudentId(), rec);
+            }
+        }
+
+        // 4. Group completed sessions by (batchId + "___" + subjectId)
+        Map<String, List<CloudAttendanceSession>> batchSubjectSessions = new HashMap<>();
+        for (CloudAttendanceSession sess : completedSessions) {
+            String key = sess.getBatchId() + "___" + sess.getSubjectId();
+            batchSubjectSessions.computeIfAbsent(key, k -> new ArrayList<>()).add(sess);
+        }
+
+        List<Map<String, Object>> result = new ArrayList<>();
+
+        for (CloudStudentRoster stu : eligibleStudents) {
+            // Find all subject groupings for this student's batch
+            Set<String> studentSubjectIds = new LinkedHashSet<>();
+            for (CloudAttendanceSession sess : completedSessions) {
+                if (sess.getBatchId().equals(stu.getBatchId())) {
+                    studentSubjectIds.add(sess.getSubjectId());
+                }
+            }
+
+            // If no completed sessions occurred for this batch at all:
+            if (studentSubjectIds.isEmpty()) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("student_id", stu.getStudentId());
+                row.put("name", stu.getName());
+                row.put("admission_number", stu.getAdmissionNumber() != null ? stu.getAdmissionNumber() : "N/A");
+                row.put("gender", stu.getGender());
+                row.put("batch_id", stu.getBatchId());
+                row.put("batch_name", batchNameMap.getOrDefault(stu.getBatchId(), "MBBS"));
+                row.put("session_date", "-");
+                row.put("date", "-");
+                row.put("subject_id", subjectId != null ? subjectId : "");
+                Map<String, String> subInfo = subjectId != null ? subjMap.get(subjectId) : null;
+                row.put("subject_name", subInfo != null ? subInfo.get("name") : "All Subjects");
+                row.put("subject_code", subInfo != null ? subInfo.get("code") : "");
+                row.put("total_sessions", 0);
+                row.put("attended_sessions", 0);
+                row.put("present_count", 0);
+                row.put("late_count", 0);
+                row.put("absent_count", 0);
+                row.put("percentage", 0.0);
+                row.put("is_shortage", false);
+                row.put("classes_needed_for_75", 0);
+                result.add(row);
+                continue;
+            }
+
+            // Otherwise, calculate attendance per subject conducted for this student
+            for (String subId : studentSubjectIds) {
+                List<CloudAttendanceSession> sessionsForSub = batchSubjectSessions.getOrDefault(
+                        stu.getBatchId() + "___" + subId, Collections.emptyList()
+                );
+                int total = sessionsForSub.size();
+                int present = 0;
+                int late = 0;
+                int absent = 0;
+                String ayId = "";
+                String lastDate = "";
+
+                for (CloudAttendanceSession sess : sessionsForSub) {
+                    if (ayId.isBlank() && sess.getAcademicYearId() != null) {
+                        ayId = sess.getAcademicYearId();
+                    }
+                    if (sess.getSessionDate() != null) {
+                        String ds = sess.getSessionDate().toString();
+                        if (ds.compareTo(lastDate) > 0) {
+                            lastDate = ds;
+                        }
+                    }
+                    CloudAttendanceRecord rec = recordLookup.get(sess.getSessionId() + "___" + stu.getStudentId());
+                    if (rec != null) {
+                        String st = rec.getStatus() != null ? rec.getStatus().toUpperCase() : "PRESENT";
+                        if ("PRESENT".equals(st)) {
+                            present++;
+                        } else if ("LATE".equals(st)) {
+                            late++;
+                        } else {
+                            absent++;
+                        }
+                    } else {
+                        // Student was NOT marked present/late in this conducted session -> ABSENT
+                        absent++;
+                    }
+                }
+
+                int attended = present + late;
+                double pct = total > 0 ? Math.round((attended * 1000.0) / total) / 10.0 : 0.0;
+                int neededFor75 = 0;
+                if (pct < 75.0 && total > 0) {
+                    neededFor75 = Math.max(0, (int) Math.ceil(3.0 * total - 4.0 * attended));
+                }
+
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("student_id", stu.getStudentId());
+                row.put("name", stu.getName());
+                row.put("admission_number", stu.getAdmissionNumber() != null ? stu.getAdmissionNumber() : "N/A");
+                row.put("gender", stu.getGender());
+                row.put("batch_id", stu.getBatchId());
+                row.put("batch_name", batchNameMap.getOrDefault(stu.getBatchId(), "MBBS"));
+                row.put("academic_year_id", ayId);
+                row.put("session_date", !lastDate.isBlank() ? lastDate : "-");
+                row.put("date", !lastDate.isBlank() ? lastDate : "-");
+                row.put("subject_id", subId);
+                Map<String, String> subInfo = subjMap.get(subId);
+                row.put("subject_name", subInfo != null ? subInfo.get("name") : "Subject");
+                row.put("subject_code", subInfo != null ? subInfo.get("code") : "");
+                row.put("total_sessions", total);
+                row.put("attended_sessions", attended);
+                row.put("present_count", present);
+                row.put("late_count", late);
+                row.put("absent_count", absent);
+                row.put("percentage", pct);
+                row.put("is_shortage", pct < threshold);
+                row.put("classes_needed_for_75", neededFor75);
+
+                result.add(row);
+            }
+        }
+
+        return ResponseEntity.ok(result);
+    }
+
+    @GetMapping("/reports/shortage")
+    public ResponseEntity<List<Map<String, Object>>> getShortageReport(
+            @RequestParam(required = false, defaultValue = "") String institutionId,
+            @RequestParam(required = false) String batchId,
+            @RequestParam(required = false) String subjectId,
+            @RequestParam(required = false) String academicYearId,
+            @RequestParam(required = false, defaultValue = "75") double threshold) {
+        ResponseEntity<List<Map<String, Object>>> summaryRes = getStudentSummary(institutionId, batchId, subjectId, academicYearId, threshold);
+        List<Map<String, Object>> list = summaryRes.getBody();
+        if (list == null) return ResponseEntity.ok(Collections.emptyList());
+
+        List<Map<String, Object>> shortage = new ArrayList<>();
+        for (Map<String, Object> row : list) {
+            double pct = ((Number) row.getOrDefault("percentage", 0.0)).doubleValue();
+            int total = ((Number) row.getOrDefault("total_sessions", 0)).intValue();
+            if (pct < threshold && total > 0) {
+                shortage.add(row);
+            }
+        }
+        return ResponseEntity.ok(shortage);
+    }
+
+    @GetMapping("/reports/faculty-workload")
+    public ResponseEntity<List<Map<String, Object>>> getFacultyWorkload(
+            @RequestParam(required = false, defaultValue = "") String institutionId) {
+        String resId = resolveId(institutionId);
+        if (resId.isBlank()) return ResponseEntity.ok(Collections.emptyList());
+
+        List<CloudTeacher> teachers = teacherRepo.findByInstitutionId(resId);
+        List<CloudAttendanceSession> sessions = sessionRepo.findByInstitutionId(resId);
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (CloudTeacher t : teachers) {
+            int sessionCount = 0;
+            String lastDate = "";
+            for (CloudAttendanceSession s : sessions) {
+                if (t.getId().equals(s.getFacultyId())) {
+                    sessionCount++;
+                    if (s.getSessionDate() != null) {
+                        String dateStr = s.getSessionDate().toString();
+                        if (dateStr.compareTo(lastDate) > 0) {
+                            lastDate = dateStr;
+                        }
+                    }
+                }
+            }
+            int totalMinutes = sessionCount * 60;
+            String totalHours = (totalMinutes / 60) + "h " + (totalMinutes % 60) + "m";
+
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("faculty_id", t.getId());
+            map.put("employee_id", t.getEmployeeId() != null ? t.getEmployeeId() : "");
+            map.put("name", t.getName());
+            map.put("department_name", t.getDepartment() != null ? t.getDepartment() : "General");
+            map.put("total_sessions", sessionCount);
+            map.put("total_minutes", totalMinutes);
+            map.put("total_hours", totalHours);
+            map.put("topics_covered_count", sessionCount);
+            map.put("last_session_date", !lastDate.isBlank() ? lastDate : "N/A");
+            result.add(map);
+        }
+        return ResponseEntity.ok(result);
     }
 
 }

@@ -29,6 +29,17 @@ export default function RecognitionSessionPage() {
   const [scanCount, setScanCount] = useState(0)
   const [errorMsg, setErrorMsg] = useState('')
 
+  // Load face recognition settings from DB
+  useEffect(() => {
+    (window.api as any).faceRecognition.getSettings().then((settings: any) => {
+      if (settings) {
+        // Use reject_below_threshold as the default matching threshold
+        setThreshold(settings.reject_below_threshold ?? 0.5)
+        faceRecognitionService.updateThreshold(settings.reject_below_threshold ?? 0.5)
+      }
+    }).catch(() => {})
+  }, [])
+
   // Derived counts
   const enrolledCount = students.filter(s => s.face_enrolled).length
   const recognizedCount = students.filter(s => s.recognized).length
@@ -88,9 +99,19 @@ export default function RecognitionSessionPage() {
   // ── Recognition loop ────────────────────────────────────────────────────────
   const startScanning = useCallback(() => {
     setPhase('scanning')
+    let lastFrameTime = 0
+    let rafId: number | null = null
 
     const runLoop = async () => {
       if (!videoRef.current || !canvasRef.current) return
+
+      const now = performance.now()
+      // Throttle to ~200ms between scans (5 fps) using rAF
+      if (now - lastFrameTime < 200) {
+        rafId = requestAnimationFrame(runLoop)
+        return
+      }
+      lastFrameTime = now
 
       const video = videoRef.current
       const canvas = canvasRef.current
@@ -130,7 +151,7 @@ export default function RecognitionSessionPage() {
             if (existing && !existing.recognized) {
               window.api.faceRecognition
                 .markRecognized(match.recordId, match.confidence)
-                .catch(console.error)
+                .catch(err => console.error('[FaceRecognition] markRecognized failed:', err))
               setScanCount(c => c + 1)
               return prev.map(s =>
                 s.record_id === match.recordId
@@ -146,18 +167,19 @@ export default function RecognitionSessionPage() {
         if (matches.length === 0) {
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
         }
-      } catch {
-        // Swallow per-frame errors, keep loop alive
+      } catch (err) {
+        console.warn('[FaceRecognition] Scanning frame error:', err)
       }
 
-      loopRef.current = setTimeout(runLoop, 800)
+      rafId = requestAnimationFrame(runLoop)
     }
 
-    runLoop()
+    rafId = requestAnimationFrame(runLoop)
+    loopRef.current = rafId as unknown as ReturnType<typeof setTimeout>
   }, [threshold])
 
   const pauseScanning = useCallback(() => {
-    if (loopRef.current) clearTimeout(loopRef.current)
+    if (loopRef.current) cancelAnimationFrame(loopRef.current as unknown as number)
     setPhase('ready')
 
     // Draw last video frame on canvas
@@ -195,7 +217,7 @@ export default function RecognitionSessionPage() {
   // ── Cleanup on unmount ──────────────────────────────────────────────────────
   useEffect(() => {
     return () => {
-      if (loopRef.current) clearTimeout(loopRef.current)
+      if (loopRef.current) cancelAnimationFrame(loopRef.current as unknown as number)
       if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop())
       faceRecognitionService.reset()
     }

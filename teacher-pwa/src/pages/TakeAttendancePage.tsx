@@ -7,6 +7,7 @@ import {
   CachedTopic,
   LocalAttendanceSession,
   LocalAttendanceRecord,
+  isClassAssignedToTeacher,
 } from '../db/pwa-db'
 import { usePwaAuth } from '../context/PwaAuthContext'
 import { v4 as uuidv4 } from 'uuid'
@@ -67,7 +68,11 @@ export default function TakeAttendancePage() {
         program_name: c.program_name || c.programName || '',
         academic_year_id: c.academic_year_id || c.academicYearId || '',
       }))
-      setClasses(assigned)
+      const myClasses = assigned.filter((c: any) =>
+        c.id === classIdParam || isClassAssignedToTeacher(c, teacher)
+      )
+      const availableClasses = myClasses.length > 0 ? myClasses : assigned
+      setClasses(availableClasses)
 
       if (sessionIdParam) {
         const foundSession = await db.sessions.where('session_id').equals(sessionIdParam).first()
@@ -78,7 +83,7 @@ export default function TakeAttendancePage() {
           setCustomTopic(foundSession.custom_topic || '')
 
           // Load records
-          const recs = await db.records.where('session_id').equals(foundSession.session_id).toArray()
+          const recs = await db.records.where('session_id').equals(sessionIdParam).toArray()
           const map: Record<string, LocalAttendanceRecord> = {}
           recs.forEach((r) => {
             map[r.student_id] = r
@@ -86,10 +91,7 @@ export default function TakeAttendancePage() {
           setRecords(map)
 
           // Load students for this specific session
-          let sessionStudents: CachedStudent[] = []
-          if (foundSession.batch_id) {
-            sessionStudents = await db.students.where('class_id').equals(foundSession.batch_id).toArray()
-          }
+          let sessionStudents: CachedStudent[] = await db.students.where('class_id').equals(foundSession.batch_id).toArray()
           if (sessionStudents.length === 0) {
             const recordStudentIds = new Set(recs.map((r) => r.student_id))
             const allStus = await db.students.toArray()
@@ -97,15 +99,15 @@ export default function TakeAttendancePage() {
           }
           setStudents(sessionStudents)
         }
-      } else if (classIdParam && assigned.some((c) => c.id === classIdParam)) {
+      } else if (classIdParam && availableClasses.some((c) => c.id === classIdParam)) {
         setSelectedClassId(classIdParam)
-      } else if (assigned.length > 0) {
-        setSelectedClassId(assigned[0].id)
+      } else if (availableClasses.length > 0) {
+        setSelectedClassId(availableClasses[0].id)
       }
     }
 
     loadData()
-  }, [classIdParam, sessionIdParam])
+  }, [classIdParam, sessionIdParam, teacher?.id, teacher?.employee_id, teacher?.name])
 
   // 2. Load topics and students when class changes
   useEffect(() => {

@@ -207,6 +207,10 @@ export function PwaAuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const logout = async () => {
+    try {
+      await db.teacherProfile.clear()
+      await db.classes.clear()
+    } catch {}
     setTeacher(null)
   }
 
@@ -311,8 +315,10 @@ export function PwaAuthProvider({ children }: { children: React.ReactNode }) {
       // Also pull latest assignments & topics if online
       try {
         const apiBase = (import.meta as any).env?.VITE_CLOUD_API_URL ?? (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:8086' : '')
+        const currentInst = teacher?.institution_id || localStorage.getItem('pwa_institute_id') || ''
+        const facultyParam = teacher?.id ? `&facultyId=${encodeURIComponent(teacher.id)}` : ''
         const pullRes = await fetch(
-          `${apiBase}/api/v1/sync/pwa/pull?institutionId=${teacher?.institution_id || ''}`
+          `${apiBase}/api/v1/sync/pwa/pull?institutionId=${encodeURIComponent(currentInst)}${facultyParam}`
         )
         if (pullRes.ok) {
           const pullData = await pullRes.json()
@@ -386,14 +392,28 @@ export function PwaAuthProvider({ children }: { children: React.ReactNode }) {
 
           if (pullData.students && pullData.students.length > 0) {
             const mappedStudents = pullData.students.map((s: any) => {
-              let parsedDesc: number[] | undefined = undefined
+              let parsedDesc: number[] | number[][] | undefined = undefined
               if (s.faceDescriptor) {
                 if (Array.isArray(s.faceDescriptor)) {
+                  // Could be number[] (single) or number[][] (multi)
                   parsedDesc = s.faceDescriptor
                 } else if (typeof s.faceDescriptor === 'string') {
                   try {
-                    parsedDesc = JSON.parse(s.faceDescriptor)
-                  } catch {}
+                    const parsed = JSON.parse(s.faceDescriptor)
+                    if (Array.isArray(parsed)) {
+                      parsedDesc = parsed
+                    }
+                  } catch (parseErr) {
+                    // Single legacy descriptor as JSON string — parse inner array
+                    try {
+                      const inner = JSON.parse(s.faceDescriptor)
+                      if (Array.isArray(inner) && inner.length === 128) {
+                        parsedDesc = [inner]
+                      }
+                    } catch {
+                      console.warn('[FaceSync] Could not parse face descriptor for student:', s.studentId)
+                    }
+                  }
                 }
               }
               return {

@@ -264,6 +264,19 @@ export function registerIpcHandlers(ipcMain: IpcMain): void {
   )
 
   // ─── Face Recognition ─────────────────────────────────────────────────────
+  ipcMain.handle('faceRecognition:getSettings', () => {
+    const row = db.prepare(`SELECT * FROM face_recognition_settings LIMIT 1`).get() as any
+    return row ?? {
+      auto_accept_threshold: 0.90,
+      manual_review_threshold: 0.75,
+      reject_below_threshold: 0.55,
+      liveness_enabled: 1,
+      blink_detection_enabled: 1,
+      motion_check_enabled: 1,
+      recognition_timeout_seconds: 30,
+    }
+  })
+
   ipcMain.handle('faceRecognition:getSessionStudents', (_e, sessionId: string) => {
     const session = db
       .prepare(`SELECT * FROM attendance_session WHERE session_id = ?`)
@@ -374,7 +387,9 @@ export function registerIpcHandlers(ipcMain: IpcMain): void {
             enrollment_id: enr.enrollment_id,
             sampleBase64: buf.toString('base64'),
           })
-        } catch {}
+        } catch (e) {
+          console.warn('[FaceRecognition] Could not read sample file:', sample.file_path, e)
+        }
       }
     }
     return result

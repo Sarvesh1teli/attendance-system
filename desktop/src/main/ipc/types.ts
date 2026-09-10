@@ -175,6 +175,7 @@ export interface IpcApi {
   }
 
   faceRecognition: {
+    getSettings: () => Promise<FaceRecognitionSettings>
     getSessionStudents: (sessionId: string) => Promise<RecognitionStudent[]>
     markRecognized: (recordId: string, confidence: number) => Promise<boolean>
     getMissingDescriptorsData: () => Promise<Array<{ enrollment_id: string; sampleBase64: string }>>
@@ -452,6 +453,18 @@ export interface FaceSample {
   captured_by: string | null
   created_at: string
   updated_at: string
+}
+
+export interface FaceRecognitionSettings {
+  settings_id: string
+  institution_id: string
+  auto_accept_threshold: number
+  manual_review_threshold: number
+  reject_below_threshold: number
+  liveness_enabled: number
+  blink_detection_enabled: number
+  motion_check_enabled: number
+  recognition_timeout_seconds: number
 }
 
 // ─── Enums ───────────────────────────────────────────────────────────────────

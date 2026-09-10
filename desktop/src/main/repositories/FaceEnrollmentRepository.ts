@@ -77,11 +77,37 @@ export class FaceEnrollmentRepository {
   }
 
   saveDescriptor(enrollmentId: string, descriptorJson: string): void {
+    // Accumulate descriptors as a JSON array instead of overwriting.
+    // This preserves angle-specific descriptors (FRONT/LEFT/RIGHT) for multi-sample matching.
+    const existing = this.db.prepare(
+      `SELECT face_descriptor FROM face_enrollment WHERE enrollment_id = ?`
+    ).get(enrollmentId) as { face_descriptor?: string } | undefined
+
+    let descriptors: string[] = []
+    if (existing?.face_descriptor) {
+      try {
+        const parsed = JSON.parse(existing.face_descriptor)
+        if (Array.isArray(parsed)) {
+          descriptors = parsed
+        } else if (typeof parsed === 'string') {
+          descriptors = [parsed]
+        }
+      } catch {
+        // Single legacy descriptor — keep it as first entry
+        descriptors = [existing.face_descriptor]
+      }
+    }
+
+    // Avoid adding duplicate descriptors (same sample re-captured)
+    if (!descriptors.includes(descriptorJson)) {
+      descriptors.push(descriptorJson)
+    }
+
     this.db.prepare(`
       UPDATE face_enrollment
       SET face_descriptor = ?, updated_at = datetime('now'), last_updated = datetime('now')
       WHERE enrollment_id = ?
-    `).run(descriptorJson, enrollmentId)
+    `).run(JSON.stringify(descriptors), enrollmentId)
   }
 
   // ── Samples ────────────────────────────────────────────────────────────

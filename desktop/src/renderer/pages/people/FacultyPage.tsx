@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Pencil, GraduationCap, Search, KeyRound, UserCheck, ShieldCheck } from 'lucide-react'
+import { Plus, Pencil, GraduationCap, Search, KeyRound, UserCheck, ShieldCheck, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react'
 import type { Faculty, Department, CreateFacultyInput, Gender, FacultyStatus, AppUser } from '@main/ipc/types'
 
 const STATUS_COLORS: Record<FacultyStatus, string> = {
@@ -17,6 +17,8 @@ export default function FacultyPage() {
   const [editing, setEditing] = useState<Faculty | null>(null)
   const [search, setSearch] = useState('')
   const [filterDept, setFilterDept] = useState('')
+  const [page, setPage] = useState(1)
+  const pageSize = 10
   const [form, setForm] = useState<{
     employee_id: string; name: string; gender: string; designation: string;
     department_id: string; phone: string; email: string; joining_date: string; status: FacultyStatus;
@@ -48,6 +50,9 @@ export default function FacultyPage() {
     !search || f.name.toLowerCase().includes(search.toLowerCase()) || f.employee_id.toLowerCase().includes(search.toLowerCase())
   )
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const paginatedFaculty = filtered.slice((page - 1) * pageSize, page * pageSize)
+
   const openCreate = () => {
     setEditing(null)
     setForm({
@@ -60,10 +65,21 @@ export default function FacultyPage() {
   const openEdit = (f: Faculty) => {
     setEditing(f)
     const existingUser = users.find(u => u.faculty_id === f.faculty_id)
+    const matchedDept = departments.find(d =>
+      d.department_id === f.department_id ||
+      d.department_name.toLowerCase() === (f.department_id || '').toLowerCase() ||
+      d.department_name.toLowerCase() === ((f as any).department || '').toLowerCase()
+    )
     setForm({
-      employee_id: f.employee_id, name: f.name, gender: f.gender ?? '', designation: f.designation ?? '',
-      department_id: f.department_id ?? '', phone: f.phone ?? '', email: f.email ?? '',
-      joining_date: f.joining_date ?? '', status: f.status,
+      employee_id: f.employee_id,
+      name: f.name,
+      gender: f.gender ?? '',
+      designation: f.designation ?? '',
+      department_id: matchedDept ? matchedDept.department_id : (f.department_id ?? ''),
+      phone: f.phone ?? '',
+      email: f.email ?? '',
+      joining_date: f.joining_date ?? '',
+      status: f.status,
       username: existingUser?.username ?? '',
       password: '',
     })
@@ -77,13 +93,22 @@ export default function FacultyPage() {
     if (!users.some(u => u.faculty_id === editing?.faculty_id) && !form.password) { setError('Password is required for a new teacher login'); return }
     setSaving(true)
     try {
+      const dept = departments.find(d => d.department_id === form.department_id)
+      const facultyData = {
+        name: form.name.trim(),
+        employee_id: form.employee_id.trim(),
+        gender: (form.gender as Gender) || undefined,
+        designation: form.designation.trim() || undefined,
+        department_id: form.department_id || undefined,
+        department: dept?.department_name || undefined,
+        phone: form.phone.trim() || undefined,
+        email: form.email.trim() || undefined,
+        joining_date: form.joining_date || undefined,
+        status: form.status,
+      }
+
       if (editing) {
-        await window.api.faculty.update(editing.faculty_id, {
-          name: form.name, gender: (form.gender as Gender) || undefined,
-          designation: form.designation || undefined, department_id: form.department_id || undefined,
-          phone: form.phone || undefined, email: form.email || undefined,
-          joining_date: form.joining_date || undefined, status: form.status,
-        })
+        await window.api.faculty.update(editing.faculty_id, facultyData as any)
 
         if (form.username.trim()) {
           const existingUser = users.find(u => u.faculty_id === editing.faculty_id)
@@ -102,24 +127,18 @@ export default function FacultyPage() {
           }
         }
       } else {
-        const input: CreateFacultyInput = {
-          employee_id: form.employee_id, name: form.name,
-          gender: (form.gender as Gender) || undefined, designation: form.designation || undefined,
-          department_id: form.department_id || undefined, phone: form.phone || undefined,
-          email: form.email || undefined, joining_date: form.joining_date || undefined,
-        }
-        const created = await window.api.faculty.create(input)
+        const created = await window.api.faculty.create(facultyData as any)
 
         const finalUsername = form.username.trim()
         const finalPassword = form.password
         if (finalUsername && finalPassword) {
           setEditing(created)
           await window.api.appUser.create({
-              faculty_id: created.faculty_id,
-              username: finalUsername,
-              password: finalPassword,
-              role: 'FACULTY',
-            })
+            faculty_id: created.faculty_id,
+            username: finalUsername,
+            password: finalPassword,
+            role: 'FACULTY',
+          })
         }
       }
       setShowForm(false); await load()
@@ -128,32 +147,41 @@ export default function FacultyPage() {
     } finally { setSaving(false) }
   }
 
-  const deptName = (id: string | null) => departments.find(d => d.department_id === id)?.department_name ?? '—'
+  const deptName = (id: string | null) => {
+    if (!id) return '—'
+    const found = departments.find(d => d.department_id === id || d.department_name.toLowerCase() === id.toLowerCase())
+    return found ? found.department_name : id
+  }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Faculty</h1>
-          <p className="text-muted-foreground text-sm">Manage faculty members and assignments</p>
+      {/* Search, Department Filter, and Add Faculty in same row */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-1 flex-wrap items-center gap-3 min-w-[240px]">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <input className="w-full border rounded-md pl-9 pr-3 py-2 text-sm bg-background"
+              placeholder="Search name or employee ID…" value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} />
+          </div>
+          <select className="border rounded-md px-3 py-2 text-sm bg-background"
+            value={filterDept} onChange={e => { setFilterDept(e.target.value); setPage(1) }}>
+            <option value="">All Departments</option>
+            {departments.map(d => <option key={d.department_id} value={d.department_id}>{d.department_name}</option>)}
+          </select>
+          {(search || filterDept) && (
+            <button
+              onClick={() => { setSearch(''); setFilterDept(''); setPage(1) }}
+              className="text-xs text-primary hover:underline flex items-center gap-1"
+            >
+              <RotateCcw className="h-3 w-3" /> Reset
+            </button>
+          )}
         </div>
+
         <button onClick={openCreate}
-          className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90">
+          className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 whitespace-nowrap">
           <Plus className="h-4 w-4" /> Add Faculty
         </button>
-      </div>
-
-      <div className="flex flex-wrap gap-3">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <input className="w-full border rounded-md pl-9 pr-3 py-2 text-sm bg-background"
-            placeholder="Search name or employee ID…" value={search} onChange={e => setSearch(e.target.value)} />
-        </div>
-        <select className="border rounded-md px-3 py-2 text-sm bg-background"
-          value={filterDept} onChange={e => setFilterDept(e.target.value)}>
-          <option value="">All Departments</option>
-          {departments.map(d => <option key={d.department_id} value={d.department_id}>{d.department_name}</option>)}
-        </select>
       </div>
 
       {error && !showForm && <p className="text-destructive text-sm">{error}</p>}
@@ -274,7 +302,8 @@ export default function FacultyPage() {
             <p className="text-muted-foreground text-sm">{faculty.length === 0 ? 'No faculty yet.' : 'No results match your search.'}</p>
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <>
+            <table className="w-full text-sm">
             <thead className="border-b bg-muted/30">
               <tr>
                 <th className="text-left px-4 py-3 font-medium">Name</th>
@@ -288,7 +317,7 @@ export default function FacultyPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((f, i) => {
+              {paginatedFaculty.map((f, i) => {
                 const user = users.find(u => u.faculty_id === f.faculty_id)
                 return (
                   <tr key={f.faculty_id} className={i % 2 === 0 ? '' : 'bg-muted/10'}>
@@ -324,12 +353,38 @@ export default function FacultyPage() {
               })}
             </tbody>
           </table>
-        )}
-      </div>
 
-      <p className="text-xs text-muted-foreground">
-        Total: {filtered.length} faculty members {filtered.length !== faculty.length ? `(filtered from ${faculty.length})` : ''}
-      </p>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t text-sm bg-muted/20">
+              <span className="text-xs text-muted-foreground">
+                Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, filtered.length)} of {filtered.length} faculty
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="p-1.5 rounded border text-xs disabled:opacity-40 hover:bg-muted"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <span className="px-2 text-xs font-medium">Page {page} of {totalPages}</span>
+                <button
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="p-1.5 rounded border text-xs disabled:opacity-40 hover:bg-muted"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
+
+    <p className="text-xs text-muted-foreground">
+      Total: {filtered.length} faculty members {filtered.length !== faculty.length ? `(filtered from ${faculty.length})` : ''}
+    </p>
+  </div>
   )
 }

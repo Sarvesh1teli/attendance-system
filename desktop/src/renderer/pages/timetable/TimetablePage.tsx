@@ -194,8 +194,18 @@ export default function TimetablePage() {
 
   const availableFaculties = useMemo(() => {
     if (!form.department_id) return faculties
-    return faculties.filter((f) => f.department_id === form.department_id)
-  }, [faculties, form.department_id])
+    const selectedDept = deptMap.get(form.department_id)
+    return faculties.filter((f) => {
+      if (f.department_id === form.department_id) return true
+      if (selectedDept) {
+        if (f.department_id === selectedDept.department_name) return true
+        if ((f as any).department === selectedDept.department_name) return true
+        if (f.department_id && f.department_id.toLowerCase() === selectedDept.department_name.toLowerCase()) return true
+        if ((f as any).department && (f as any).department.toLowerCase() === selectedDept.department_name.toLowerCase()) return true
+      }
+      return false
+    })
+  }, [faculties, form.department_id, deptMap])
 
   const openCreate = (dayOfWeek: number) => {
     setEditing(null)
@@ -208,7 +218,9 @@ export default function TimetablePage() {
     setEditing(slot)
     const fac = faculties.find((f) => f.faculty_id === slot.faculty_id)
     const subj = subjects.find((s) => s.subject_id === slot.subject_id)
-    const deptId = fac?.department_id || subj?.department_id || ''
+    let deptId = fac?.department_id || subj?.department_id || ''
+    const foundDept = departments.find((d) => d.department_id === deptId || d.department_name.toLowerCase() === deptId.toLowerCase())
+    if (foundDept) deptId = foundDept.department_id
 
     setForm({
       department_id: deptId,
@@ -230,13 +242,23 @@ export default function TimetablePage() {
   const handleDepartmentChange = (deptId: string) => {
     setForm((prev) => {
       let newFacultyId = prev.faculty_id
+      const selectedDept = deptMap.get(deptId)
+      const inDept = faculties.filter((f) => {
+        if (f.department_id === deptId) return true
+        if (selectedDept) {
+          if (f.department_id === selectedDept.department_name) return true
+          if ((f as any).department === selectedDept.department_name) return true
+          if (f.department_id && f.department_id.toLowerCase() === selectedDept.department_name.toLowerCase()) return true
+          if ((f as any).department && (f as any).department.toLowerCase() === selectedDept.department_name.toLowerCase()) return true
+        }
+        return false
+      })
       if (deptId && newFacultyId) {
-        const currentFac = faculties.find((f) => f.faculty_id === newFacultyId)
-        if (currentFac && currentFac.department_id !== deptId) {
+        const isCurrentInDept = inDept.some((f) => f.faculty_id === newFacultyId)
+        if (!isCurrentInDept) {
           newFacultyId = ''
         }
       }
-      const inDept = faculties.filter((f) => f.department_id === deptId)
       if (inDept.length === 1 && !newFacultyId) {
         newFacultyId = inDept[0].faculty_id
       }
@@ -361,8 +383,8 @@ export default function TimetablePage() {
         subject_name: slot.subject_name || subj?.subject_name || '—',
         subject_code: slot.subject_code || subj?.subject_code || '',
         batch_name: slot.batch_name || batch?.batch_name || '—',
-        faculty_name: slot.faculty_name || fac?.name || undefined,
-        group_name: slot.group_name || grp?.group_name || undefined,
+        faculty_name: slot.faculty_name || fac?.name || null,
+        group_name: slot.group_name || grp?.group_name || null,
       }
     })
   }, [slots, subjectMap, batchMap, facultyMap, groupMap, subjects, batches, faculties, groups])
@@ -399,12 +421,6 @@ export default function TimetablePage() {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Calendar className="h-6 w-6 text-primary" /> Timetable
-          </h1>
-        </div>
-
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center bg-muted/60 p-1 rounded-lg border text-xs font-semibold">
             <button

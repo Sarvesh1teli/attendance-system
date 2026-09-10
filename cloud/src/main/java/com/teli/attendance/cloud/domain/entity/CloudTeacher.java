@@ -42,6 +42,28 @@ public class CloudTeacher {
 
     private String department;
 
+    @Column(length = 64)
+    private String departmentId;
+
+    @Column(length = 20)
+    private String gender;
+
+    @Column(length = 100)
+    private String designation;
+
+    @Column(length = 50)
+    private String phone;
+
+    @Column(length = 100)
+    private String email;
+
+    @Column(length = 30)
+    private String joiningDate;
+
+    @Column(length = 20)
+    @Builder.Default
+    private String status = "ACTIVE";
+
     private String institutionName;
 
     @Column(nullable = false)

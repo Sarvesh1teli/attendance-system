@@ -19,6 +19,7 @@ export default function LiveAttendanceSessionPage() {
   const navigate = useNavigate()
 
   const [session, setSession] = useState<any>(null)
+  const [students, setStudents] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('ALL')
@@ -31,8 +32,14 @@ export default function LiveAttendanceSessionPage() {
   const fetchSessionData = async () => {
     if (!id) return
     try {
-      const data = await (window.api as any).attendance.getSession(id)
+      const [data, stuList] = await Promise.all([
+        (window.api as any).attendance.getSession(id),
+        window.api.student.list().catch(() => [])
+      ])
       setSession(data)
+      if (stuList && Array.isArray(stuList)) {
+        setStudents(stuList)
+      }
     } catch (err) {
       console.error('Failed to load session details', err)
     } finally {
@@ -43,6 +50,24 @@ export default function LiveAttendanceSessionPage() {
   useEffect(() => {
     fetchSessionData()
   }, [id])
+
+  const studentMap = new Map((students || []).map((s: any) => [s.student_id, s]))
+
+  const getDisplayName = (r: any) => {
+    if (!r) return '—'
+    const stu = studentMap.get(r.student_id)
+    if (stu?.name) return stu.name
+    if (r.student_name && !r.student_name.startsWith('stu-') && !r.student_name.startsWith('student-')) {
+      return r.student_name
+    }
+    return stu?.name || r.name || r.student_name || 'Student'
+  }
+
+  const getAdmissionNo = (r: any) => {
+    if (!r) return '—'
+    const stu = studentMap.get(r.student_id)
+    return stu?.admission_number || (stu as any)?.admissionNumber || r.admission_number || '—'
+  }
 
   const handleQuickStatus = async (recordId: string, newStatus: string) => {
     try {
@@ -104,9 +129,11 @@ export default function LiveAttendanceSessionPage() {
 
   const records = session.records || []
   const filteredRecords = records.filter((r: any) => {
+    const sName = getDisplayName(r)
+    const admNo = getAdmissionNo(r)
     const matchesSearch =
-      r.student_name.toLowerCase().includes(search.toLowerCase()) ||
-      r.admission_number.toLowerCase().includes(search.toLowerCase())
+      sName.toLowerCase().includes(search.toLowerCase()) ||
+      admNo.toLowerCase().includes(search.toLowerCase())
     const matchesStatus = statusFilter === 'ALL' || r.status === statusFilter
     return matchesSearch && matchesStatus
   })
@@ -263,10 +290,10 @@ export default function LiveAttendanceSessionPage() {
                   return (
                     <tr key={r.record_id} className="hover:bg-muted/30 transition">
                       <td className="px-4 py-2.5 font-mono font-medium text-foreground">
-                        {r.admission_number}
+                        {getAdmissionNo(r)}
                       </td>
                       <td className="px-4 py-2.5 font-semibold text-foreground">
-                        {r.student_name}
+                        {getDisplayName(r)}
                       </td>
                       <td className="px-4 py-2.5">
                         {r.face_enrolled ? (
@@ -300,32 +327,29 @@ export default function LiveAttendanceSessionPage() {
                           </span>
                         ) : null}
                       </td>
-                      <td className="px-4 py-2.5 text-right space-x-1">
-                        {!isLocked ? (
-                          <>
+                      <td className="px-4 py-2.5 text-right">
+                        {!isLocked && (
+                          <div className="flex items-center justify-end gap-1">
                             <button
                               onClick={() => handleQuickStatus(r.record_id, isP ? 'ABSENT' : 'PRESENT')}
-                              className={`px-2 py-1 rounded text-[11px] font-medium transition ${
-                                isP
-                                  ? 'border border-rose-200 text-rose-600 hover:bg-rose-50'
-                                  : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                              className={`p-1 rounded hover:bg-muted ${
+                                isP ? 'text-rose-600' : 'text-emerald-600'
                               }`}
+                              title={isP ? 'Mark Absent' : 'Mark Present'}
                             >
-                              {isP ? 'Mark Absent' : 'Mark Present'}
+                              {isP ? <XCircle className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
                             </button>
                             <button
                               onClick={() => {
                                 setSelectedRecord(r)
                                 setOverrideStatus(r.status)
                               }}
-                              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
-                              title="Manual Override & Reason"
+                              className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                              title="Manual Override"
                             >
                               <Edit3 className="h-3.5 w-3.5" />
                             </button>
-                          </>
-                        ) : (
-                          <span className="text-[10px] text-muted-foreground">Locked</span>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -342,10 +366,10 @@ export default function LiveAttendanceSessionPage() {
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-card border rounded-lg max-w-sm w-full p-5 shadow-xl space-y-3">
             <h3 className="text-sm font-bold text-foreground">
-              Manual Override: {selectedRecord.student_name}
+              Manual Override: {getDisplayName(selectedRecord)}
             </h3>
             <p className="text-xs text-muted-foreground">
-              Roll No: {selectedRecord.admission_number}
+              Roll No: {getAdmissionNo(selectedRecord)}
             </p>
 
             <form onSubmit={handleSaveOverride} className="space-y-3">

@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { db, AssignedClass, LocalAttendanceSession } from '../db/pwa-db'
+import { db, AssignedClass, LocalAttendanceSession, isClassAssignedToTeacher } from '../db/pwa-db'
+import { usePwaAuth } from '../context/PwaAuthContext'
 import { Calendar, Clock, MapPin, Play, Users, AlertCircle, CalendarDays } from 'lucide-react'
 import { formatTo12Hour, extractDayOfWeek, DAY_NAMES, DAY_SHORT } from '../utils/time-utils'
 
 export default function SchedulePage() {
   const navigate = useNavigate()
+  const { teacher } = usePwaAuth()
   const [classes, setClasses] = useState<AssignedClass[]>([])
   const [activeSessions, setActiveSessions] = useState<LocalAttendanceSession[]>([])
   const [loading, setLoading] = useState(true)
@@ -70,7 +72,8 @@ export default function SchedulePage() {
             room: c.room || 'Lecture Hall 1',
           }
         })
-        setClasses(assigned)
+        const myClasses = assigned.filter((c) => isClassAssignedToTeacher(c, teacher))
+        setClasses(myClasses)
 
         const open = await db.sessions.where('status').equals('OPEN').toArray()
         setActiveSessions(open)
@@ -82,7 +85,7 @@ export default function SchedulePage() {
     }
 
     loadSchedule()
-  }, [])
+  }, [teacher?.id, teacher?.employee_id, teacher?.name])
 
   const handleCancelSession = async (sessionId: string) => {
     if (
